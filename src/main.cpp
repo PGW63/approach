@@ -120,7 +120,7 @@ void ApproachNode::syncCallback(
   publish3Dpointcloud(cloud);
 
   roi_filter_->projection_filter(cloud, cloud_2d);
-  convex_hull_->compute(cloud);
+  convex_hull_->compute(cloud_2d);
 
   obb = plane_filter_->compute_OBB(cloud_2d);
   publish2DOBB(obb.center, obb.axis1, obb.axis2, obb.length1, obb.length2);

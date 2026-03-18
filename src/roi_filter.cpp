@@ -172,7 +172,7 @@ void Filter::projection_filter(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud,
   pcl::PointCloud<pcl::PointXY>::Ptr projection_cloud(
       new pcl::PointCloud<pcl::PointXY>);
 
-  for (auto i = 0; i < cloud->points.size(); i++) {
+  for (size_t i = 0; i < cloud->points.size(); i++) {
     pcl::PointXY point;
     point.x = cloud->points[i].x;
     point.y = cloud->points[i].y;
