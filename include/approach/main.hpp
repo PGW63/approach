@@ -1,5 +1,6 @@
 #pragma once
 
+#include "approach/convexhull.hpp"
 #include "approach/edge_extractor.hpp"
 #include "approach/error_estimator.hpp"
 #include "approach/pid_controller.hpp"
@@ -9,8 +10,9 @@
 #include <memory>
 #include <string>
 
-#include <geometry_msgs/msg/twist.hpp>
+#include <Eigen/Dense>
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <geometry_msgs/msg/twist.hpp>
 #include <message_filters/subscriber.h>
 #include <message_filters/sync_policies/approximate_time.h>
 #include <message_filters/synchronizer.h>
@@ -24,10 +26,9 @@
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <vision_msgs/msg/detection2_d_array.hpp>
+#include <visualization_msgs/msg/marker.hpp>
 
-
-class ApproachNode : public rclcpp::Node
-{
+class ApproachNode : public rclcpp::Node {
 public:
   ApproachNode();
 
@@ -35,11 +36,12 @@ private:
   using PointCloudMsg = sensor_msgs::msg::PointCloud2;
   using CameraInfoMsg = sensor_msgs::msg::CameraInfo;
   using DetectionMsg = vision_msgs::msg::Detection2DArray;
-  using SyncPolicy = message_filters::sync_policies::ApproximateTime<
-    PointCloudMsg,
-    DetectionMsg>;
+  using SyncPolicy =
+      message_filters::sync_policies::ApproximateTime<PointCloudMsg,
+                                                      DetectionMsg>;
 
   std::shared_ptr<Filter> roi_filter_;
+  std::shared_ptr<ConvexHull> convex_hull_;
   std::shared_ptr<PlaneFilter> plane_filter_;
   std::shared_ptr<PIDController> pid_controller_;
   std::shared_ptr<ErrorEstimator> error_estimator_;
@@ -52,7 +54,9 @@ private:
   rclcpp::Subscription<CameraInfoMsg>::SharedPtr camera_info_subscriber_;
 
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_publisher_;
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_pointcloud_publisher_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr
+      filtered_pointcloud_publisher_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr obb_publisher_;
 
   rclcpp::QoS qos_best_effort_;
   rclcpp::QoS qos_reliable_;
@@ -68,18 +72,24 @@ private:
   float stddev_mul_thresh_ = 1.0F;
   float ground_height_ = 0.0F;
 
+  OBB obb;
+
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud;
+  pcl::PointCloud<pcl::PointXY>::Ptr cloud_2d;
   pcl::search::KdTree<pcl::PointXYZ>::Ptr kdtree;
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
 
-  void syncCallback(
-    const PointCloudMsg::ConstSharedPtr & pointcloud_msg,
-    const DetectionMsg::ConstSharedPtr & detection_msg);
+  void syncCallback(const PointCloudMsg::ConstSharedPtr &pointcloud_msg,
+                    const DetectionMsg::ConstSharedPtr &detection_msg);
   void cameraInfoCallback(const CameraInfoMsg::SharedPtr msg);
-  bool getTransform(
-    const std::string & target_frame,
-    const std::string & source_frame,
-    geometry_msgs::msg::TransformStamped & transform,
-    const rclcpp::Time & stamp = rclcpp::Time(0));
+  bool getTransform(const std::string &target_frame,
+                    const std::string &source_frame,
+                    geometry_msgs::msg::TransformStamped &transform,
+                    const rclcpp::Time &stamp = rclcpp::Time(0));
+
+  void publish3Dpointcloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud);
+  void publish2DOBB(const Eigen::Vector2f &center, const Eigen::Vector2f &axis1,
+                    const Eigen::Vector2f &axis2, const float length1,
+                    const float length2);
 };
