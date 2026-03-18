@@ -26,6 +26,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 set(APPROACH_CPP_SOURCES
   src/main.cpp
   src/roi_filter.cpp
+  src/convexhull.cpp
+  src/plane_filter.cpp
 )
 
 add_executable(approach_node ${APPROACH_CPP_SOURCES})

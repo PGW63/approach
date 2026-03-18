@@ -97,7 +97,6 @@ void ApproachNode::syncCallback(
 
   cloud.reset(new pcl::PointCloud<pcl::PointXYZ>);
   kdtree.reset(new pcl::search::KdTree<pcl::PointXYZ>);
-  cloud_2d.reset(new pcl::PointCloud<pcl::PointXY>);
 
   roi_filter_->roi_filter(pointcloud_msg, detection_msg, cloud);
   roi_filter_->voxel_downsampling(cloud);
@@ -119,10 +118,9 @@ void ApproachNode::syncCallback(
 
   publish3Dpointcloud(cloud);
 
-  roi_filter_->projection_filter(cloud, cloud_2d);
-  convex_hull_->compute(cloud_2d);
+  roi_filter_->projection_filter(cloud);
 
-  obb = plane_filter_->compute_OBB(cloud_2d);
+  obb = plane_filter_->compute_OBB(cloud);
   publish2DOBB(obb.center, obb.axis1, obb.axis2, obb.length1, obb.length2);
 }
 
@@ -165,13 +163,15 @@ void ApproachNode::publish3Dpointcloud(
   sensor_msgs::msg::PointCloud2 filtered_cloud_msg;
   pcl::toROSMsg(*cloud, filtered_cloud_msg);
   filtered_cloud_msg.header.stamp = this->now();
-  filtered_cloud_msg.header.frame_id = target_frame_; // Points are now in target_frame_
+  filtered_cloud_msg.header.frame_id =
+      target_frame_; // Points are now in target_frame_
   filtered_pointcloud_publisher_->publish(filtered_cloud_msg);
 }
 
-void ApproachNode::publish2DOBB(
-    const Eigen::Vector2f &center, const Eigen::Vector2f &axis1,
-    const Eigen::Vector2f &axis2, const float length1, const float length2) {
+void ApproachNode::publish2DOBB(const Eigen::Vector2f &center,
+                                const Eigen::Vector2f &axis1,
+                                const Eigen::Vector2f &axis2,
+                                const float length1, const float length2) {
   visualization_msgs::msg::Marker marker;
   marker.header.frame_id = target_frame_;
   marker.header.stamp = this->now();
@@ -181,25 +181,39 @@ void ApproachNode::publish2DOBB(
   marker.action = visualization_msgs::msg::Marker::ADD;
 
   marker.scale.x = 0.05; // Line width
-  
+
   marker.color.r = 0.0f;
   marker.color.g = 1.0f;
   marker.color.b = 0.0f;
   marker.color.a = 1.0f;
 
-  Eigen::Vector2f p1 = center + (length1 / 2.0f) * axis1 + (length2 / 2.0f) * axis2;
-  Eigen::Vector2f p2 = center - (length1 / 2.0f) * axis1 + (length2 / 2.0f) * axis2;
-  Eigen::Vector2f p3 = center - (length1 / 2.0f) * axis1 - (length2 / 2.0f) * axis2;
-  Eigen::Vector2f p4 = center + (length1 / 2.0f) * axis1 - (length2 / 2.0f) * axis2;
+  Eigen::Vector2f p1 =
+      center + (length1 / 2.0f) * axis1 + (length2 / 2.0f) * axis2;
+  Eigen::Vector2f p2 =
+      center - (length1 / 2.0f) * axis1 + (length2 / 2.0f) * axis2;
+  Eigen::Vector2f p3 =
+      center - (length1 / 2.0f) * axis1 - (length2 / 2.0f) * axis2;
+  Eigen::Vector2f p4 =
+      center + (length1 / 2.0f) * axis1 - (length2 / 2.0f) * axis2;
 
   geometry_msgs::msg::Point pt;
   pt.z = ground_height_; // Place it on the ground height
-  
-  pt.x = p1.x(); pt.y = p1.y(); marker.points.push_back(pt);
-  pt.x = p2.x(); pt.y = p2.y(); marker.points.push_back(pt);
-  pt.x = p3.x(); pt.y = p3.y(); marker.points.push_back(pt);
-  pt.x = p4.x(); pt.y = p4.y(); marker.points.push_back(pt);
-  pt.x = p1.x(); pt.y = p1.y(); marker.points.push_back(pt); // Close the loop
+
+  pt.x = p1.x();
+  pt.y = p1.y();
+  marker.points.push_back(pt);
+  pt.x = p2.x();
+  pt.y = p2.y();
+  marker.points.push_back(pt);
+  pt.x = p3.x();
+  pt.y = p3.y();
+  marker.points.push_back(pt);
+  pt.x = p4.x();
+  pt.y = p4.y();
+  marker.points.push_back(pt);
+  pt.x = p1.x();
+  pt.y = p1.y();
+  marker.points.push_back(pt); // Close the loop
 
   obb_publisher_->publish(marker);
 }

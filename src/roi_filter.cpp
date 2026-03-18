@@ -167,17 +167,17 @@ void Filter::cluster_points(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud,
   cloud = clustered_cloud;
 }
 
-void Filter::projection_filter(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud,
-                               pcl::PointCloud<pcl::PointXY>::Ptr &cloud_2d) {
-  pcl::PointCloud<pcl::PointXY>::Ptr projection_cloud(
-      new pcl::PointCloud<pcl::PointXY>);
+void Filter::projection_filter(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud) {
+  pcl::PointCloud<pcl::PointXYZ>::Ptr projection_cloud(
+      new pcl::PointCloud<pcl::PointXYZ>);
 
   for (size_t i = 0; i < cloud->points.size(); i++) {
-    pcl::PointXY point;
+    pcl::PointXYZ point;
     point.x = cloud->points[i].x;
     point.y = cloud->points[i].y;
+    point.z = 0;
     projection_cloud->points.push_back(point);
   }
 
-  cloud_2d = projection_cloud;
+  cloud = projection_cloud;
 }

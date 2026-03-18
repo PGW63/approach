@@ -1,6 +1,6 @@
 #include "approach/plane_filter.hpp"
 
-PlaneFilter::PlaneFilter() = default;
+
 
 OBB PlaneFilter::compute_OBB(pcl::PointCloud<pcl::PointXY>::Ptr &cloud) {
   pcl::MomentOfInertiaEstimation<pcl::PointXY> feature_extractor;

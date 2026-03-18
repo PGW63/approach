@@ -75,7 +75,6 @@ private:
   OBB obb;
 
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud;
-  pcl::PointCloud<pcl::PointXY>::Ptr cloud_2d;
   pcl::search::KdTree<pcl::PointXYZ>::Ptr kdtree;
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;

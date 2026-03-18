@@ -34,8 +34,7 @@ public:
   void cluster_points(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud,
                       pcl::search::KdTree<pcl::PointXYZ>::Ptr &kdtree);
 
-  void projection_filter(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud,
-                         pcl::PointCloud<pcl::PointXY>::Ptr &cloud_2d);
+  void projection_filter(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud, );
 
 private:
   float leaf_size_ = 0.02F;

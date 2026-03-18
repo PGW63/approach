@@ -8,5 +8,5 @@ class ConvexHull {
 public:
   ConvexHull() = default;
 
-  void compute(pcl::PointCloud<pcl::PointXY>::Ptr &cloud);
+  void compute(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud);
 };

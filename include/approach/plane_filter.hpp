@@ -17,11 +17,11 @@ class PlaneFilter {
 public:
   PlaneFilter() = default;
 
-  OBB compute_OBB(pcl::PointCloud<pcl::PointXY>::Ptr &cloud);
+  OBB compute_OBB(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud);
 
 private:
-  pcl::PointXY min_point_OBB;
-  pcl::PointXY max_point_OBB;
-  pcl::PointXY position_OBB;
-  Eigen::Matrix2f rotation_matrix_OBB;
+  pcl::PointXYZ min_point_OBB;
+  pcl::PointXYZ max_point_OBB;
+  pcl::PointXYZ position_OBB;
+  Eigen::Matrix3f rotation_matrix_OBB;
 };
