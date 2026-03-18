@@ -1,0 +1,7 @@
+approach_detector:
+  ros__parameters:
+    topic_name: "/camera/camera_head/color/image_raw/compressed"
+    service_name: "/approach/detector"
+    model_path: "models/yolov8s.pt"
+    confidence_threshold: 0.25
+    
