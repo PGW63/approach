@@ -17,6 +17,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(vision_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/DetectObject.srv"
@@ -51,6 +52,7 @@ ament_target_dependencies(approach_node
   tf2
   tf2_ros
   vision_msgs
+  visualization_msgs
 )
 
 install(
@@ -86,6 +88,7 @@ ament_export_dependencies(
   tf2
   tf2_ros
   vision_msgs
+  visualization_msgs
 )
 
 if(BUILD_TESTING)
