@@ -4,6 +4,7 @@
 #include <pcl/common/transforms.h>
 #include <pcl_conversions/pcl_conversions.h>
 
+#include <algorithm>
 #include <limits>
 #include <vector>
 
@@ -180,4 +181,37 @@ void Filter::projection_filter(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud) {
   }
 
   cloud = projection_cloud;
+}
+
+void Filter::front_slicing(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud) {
+  if (cloud->points.empty())
+    return;
+  // 1. 기준 축(여기선 X축)의 모든 값 모으기
+  std::vector<float> x_values;
+  x_values.reserve(cloud->points.size());
+  for (const auto &pt : cloud->points) {
+    x_values.push_back(pt.x);
+  }
+  // 2. 중앙값(Median) 계산
+  size_t n = x_values.size() / 2;
+  std::nth_element(x_values.begin(), x_values.begin() + n, x_values.end());
+  float median_x = x_values[n];
+  
+  // 3. 중앙값 기준으로 '로봇과 가까운 쪽 절반'만 남기기
+  pcl::PointCloud<pcl::PointXYZ>::Ptr sliced_cloud(
+      new pcl::PointCloud<pcl::PointXYZ>);
+  sliced_cloud->points.reserve(cloud->points.size() / 2);
+  for (size_t i = 0; i < cloud->points.size(); i++) {
+    // 일반적인 로봇 베이스 좌표계에서는 X축이 전방(깊이) 방향입니다.
+    // 로봇에 가까운 쪽이 X가 작은 쪽이라고 가정 (x <= median_x)
+    // (로봇 세팅에 따라 반대면 x >= median_x 로 부호 뒤집기)
+    if (cloud->points[i].x <= median_x) {
+      pcl::PointXYZ point;
+      point.x = cloud->points[i].x;
+      point.y = cloud->points[i].y;
+      point.z = cloud->points[i].z;
+      sliced_cloud->points.push_back(point);
+    }
+  }
+  cloud = sliced_cloud;
 }

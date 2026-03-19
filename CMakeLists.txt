@@ -9,7 +9,8 @@ find_package(ament_cmake REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(message_filters REQUIRED)
-find_package(PCL REQUIRED COMPONENTS common filters segmentation search kdtree)
+find_package(PCL REQUIRED COMPONENTS common filters segmentation search kdtree surface features)
+find_package(OpenCV REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
@@ -36,10 +37,12 @@ target_include_directories(approach_node
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
     ${PCL_INCLUDE_DIRS}
+    ${OpenCV_INCLUDE_DIRS}
 )
 target_compile_features(approach_node PUBLIC cxx_std_17)
 target_link_libraries(approach_node
   ${PCL_LIBRARIES}
+  ${OpenCV_LIBS}
 )
 target_compile_definitions(approach_node
   PRIVATE

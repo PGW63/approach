@@ -34,7 +34,9 @@ public:
   void cluster_points(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud,
                       pcl::search::KdTree<pcl::PointXYZ>::Ptr &kdtree);
 
-  void projection_filter(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud, );
+  void projection_filter(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud);
+
+  void front_slicing(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud);
 
 private:
   float leaf_size_ = 0.02F;
@@ -42,7 +44,7 @@ private:
   float stddev_mul_thresh_ = 1.0F;
   float ground_height_ = 0.0F;
 
-  float cluster_tolerance_ = 0.05F; // 5cm distance
+  float cluster_tolerance_ = 0.02F; // 2cm distance
   int min_cluster_size_ = 20;
   int max_cluster_size_ = 4000;
 

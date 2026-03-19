@@ -30,8 +30,8 @@ ApproachNode::ApproachNode()
   this->declare_parameter<int>("sync_queue_size", 10);
   this->declare_parameter<float>("leaf_size", 0.01F);
   this->declare_parameter<int>("mean_k", 50);
-  this->declare_parameter<float>("stddev_mul_thresh", 1.0F);
-  this->declare_parameter<float>("ground_height", 0.05F);
+  this->declare_parameter<float>("stddev_mul_thresh", 0.5F);
+  this->declare_parameter<float>("ground_height", 0.02F);
 
   this->get_parameter("pointcloud_topic_name", pointcloud_topic_name_);
   this->get_parameter("detection_topic_name", detection_topic_name_);
@@ -118,7 +118,8 @@ void ApproachNode::syncCallback(
 
   publish3Dpointcloud(cloud);
 
-  roi_filter_->projection_filter(cloud);
+  roi_filter_->projection_filter(cloud); // 2d
+  roi_filter_->front_slicing(cloud);     // 앞쪽만
 
   obb = plane_filter_->compute_OBB(cloud);
   publish2DOBB(obb.center, obb.axis1, obb.axis2, obb.length1, obb.length2);

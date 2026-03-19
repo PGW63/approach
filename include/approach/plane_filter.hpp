@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Eigen/Dense>
-#include <pcl/features/moment_of_inertia_estimation.h>
+#include <opencv2/opencv.hpp>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
@@ -20,8 +20,4 @@ public:
   OBB compute_OBB(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud);
 
 private:
-  pcl::PointXYZ min_point_OBB;
-  pcl::PointXYZ max_point_OBB;
-  pcl::PointXYZ position_OBB;
-  Eigen::Matrix3f rotation_matrix_OBB;
 };
