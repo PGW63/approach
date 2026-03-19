@@ -57,6 +57,7 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr
       filtered_pointcloud_publisher_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr obb_publisher_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr target_edge_publisher_;
 
   rclcpp::QoS qos_best_effort_;
   rclcpp::QoS qos_reliable_;
@@ -91,4 +92,5 @@ private:
   void publish2DOBB(const Eigen::Vector2f &center, const Eigen::Vector2f &axis1,
                     const Eigen::Vector2f &axis2, const float length1,
                     const float length2);
+  void publishTargetEdge(const TargetEdge &target_edge);
 };

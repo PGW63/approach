@@ -66,7 +66,9 @@ ApproachNode::ApproachNode()
       this->create_publisher<sensor_msgs::msg::PointCloud2>(
           "/approach/filtered_pointcloud", qos_best_effort_);
   obb_publisher_ = this->create_publisher<visualization_msgs::msg::Marker>(
-      "/approach/obb_marker", 10);
+      "/approach/obb_marker", qos_reliable_);
+  target_edge_publisher_ = this->create_publisher<visualization_msgs::msg::Marker>(
+      "/approach/target_edge_marker", qos_reliable_);
 
   roi_filter_->setParameters(leaf_size_, mean_k_, stddev_mul_thresh_,
                              ground_height_);
@@ -98,6 +100,7 @@ void ApproachNode::syncCallback(
   cloud.reset(new pcl::PointCloud<pcl::PointXYZ>);
   kdtree.reset(new pcl::search::KdTree<pcl::PointXYZ>);
 
+  // 포인트 클라우드 전처리 (디텍션을 통해 관심영역 설정 + 다운샘플링 + 이상치 제거)
   roi_filter_->roi_filter(pointcloud_msg, detection_msg, cloud);
   roi_filter_->voxel_downsampling(cloud);
   roi_filter_->remove_outliers(cloud);
@@ -113,6 +116,11 @@ void ApproachNode::syncCallback(
     return;
   }
   roi_filter_->remove_ground(cloud, tf.transform);
+
+  /* 
+  BBOX를 통해 관심영역을 설정하여서 뒤에 다른 물체들 혹은 여러 물체들이 잡혔을 수도 있기에 클러스터링을 통해
+  가장 큰 클러스터만 남긴다.
+  */
   kdtree->setInputCloud(cloud);
   roi_filter_->cluster_points(cloud, kdtree);
 
@@ -123,6 +131,16 @@ void ApproachNode::syncCallback(
 
   obb = plane_filter_->compute_OBB(cloud);
   publish2DOBB(obb.center, obb.axis1, obb.axis2, obb.length1, obb.length2);
+
+  // OBB에서 구한 사각형 중 로봇과 가장 가까우면서도 수평방향을 띄고 있는 축을 내적을 통해 구한다.
+  TargetEdge target_edge = edge_extractor_->extract_edges(obb.center, obb.axis1, obb.axis2, obb.length1, obb.length2);
+  publishTargetEdge(target_edge);
+  
+  // error estimator => se(2) error 측정
+
+  // pid controller => se(2) -> 로봇의 모델 방정식 -> v_x, w_z 측정
+
+  // cmd_vel 발행
 }
 
 void ApproachNode::cameraInfoCallback(const CameraInfoMsg::SharedPtr msg) {
@@ -217,6 +235,40 @@ void ApproachNode::publish2DOBB(const Eigen::Vector2f &center,
   marker.points.push_back(pt); // Close the loop
 
   obb_publisher_->publish(marker);
+}
+
+void ApproachNode::publishTargetEdge(const TargetEdge &target_edge)
+{
+  visualization_msgs::msg::Marker marker;
+  marker.header.frame_id = target_frame_;
+  marker.header.stamp = this->now();
+  marker.ns = "target_edge";
+  marker.id = 0;
+  
+  marker.type = visualization_msgs::msg::Marker::LINE_LIST; 
+  marker.action = visualization_msgs::msg::Marker::ADD;
+  marker.scale.x = 0.05; 
+  marker.color.r = 1.0f;
+  marker.color.g = 0.0f;
+  marker.color.b = 0.0f;
+  marker.color.a = 1.0f;
+  geometry_msgs::msg::Point pt;
+  pt.z = ground_height_; 
+  Eigen::Vector2f p1 = target_edge.target_center + (target_edge.target_length / 2.0f) * target_edge.target_axis;
+  Eigen::Vector2f p2 = target_edge.target_center - (target_edge.target_length / 2.0f) * target_edge.target_axis;
+  pt.x = p1.x(); pt.y = p1.y();
+  marker.points.push_back(pt);
+  pt.x = p2.x(); pt.y = p2.y();
+  marker.points.push_back(pt);
+  Eigen::Vector2f p3_normal_end = target_edge.target_center + target_edge.normal_axis * 0.3f;
+  pt.x = target_edge.target_center.x(); 
+  pt.y = target_edge.target_center.y();
+  marker.points.push_back(pt);
+  
+  pt.x = p3_normal_end.x(); 
+  pt.y = p3_normal_end.y();
+  marker.points.push_back(pt);
+  target_edge_publisher_->publish(marker);
 }
 
 int main(int argc, char **argv) {
