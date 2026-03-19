@@ -29,6 +29,9 @@ set(APPROACH_CPP_SOURCES
   src/roi_filter.cpp
   src/convexhull.cpp
   src/plane_filter.cpp
+  src/edge_extractor.cpp
+  src/error_estimator.cpp
+  src/pid_controller.cpp
 )
 
 add_executable(approach_node ${APPROACH_CPP_SOURCES})

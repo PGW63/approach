@@ -56,8 +56,11 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_publisher_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr
       filtered_pointcloud_publisher_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr
+      debugging_pointcloud_publisher_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr obb_publisher_;
-  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr target_edge_publisher_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr
+      target_edge_publisher_;
 
   rclcpp::QoS qos_best_effort_;
   rclcpp::QoS qos_reliable_;
@@ -74,6 +77,8 @@ private:
   float ground_height_ = 0.0F;
 
   OBB obb;
+  SE2Error se2_error;
+  SE2Error se2_error_prev;
 
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud;
   pcl::search::KdTree<pcl::PointXYZ>::Ptr kdtree;
