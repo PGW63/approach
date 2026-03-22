@@ -1,0 +1,15 @@
+#Goal
+
+bool start
+string main_target
+---
+#Result
+
+bool success
+string success_message
+---
+#Feedback
+
+float64 x_error
+float64 y_error
+float64 theta_error

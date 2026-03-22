@@ -21,7 +21,8 @@ public:
   Filter();
 
   void setParameters(float leaf_size, int mean_k, float stddev_mul_thresh,
-                     float ground_height);
+                     float ground_height, float cluster_tolerance,
+                     int min_cluster_size, int max_cluster_size);
   void setCameraInfo(float fx, float fy, float cx, float cy);
   void roi_filter(
       const sensor_msgs::msg::PointCloud2::ConstSharedPtr &pointcloud_msg,

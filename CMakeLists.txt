@@ -74,16 +74,27 @@ install(
 )
 
 install(
+  DIRECTORY launch/
+  DESTINATION share/${PROJECT_NAME}/launch
+)
+
+install(
+  DIRECTORY models/
+  DESTINATION share/${PROJECT_NAME}/models
+)
+
+install(
+  DIRECTORY configs/
+  DESTINATION share/${PROJECT_NAME}/configs
+)
+
+install(
   PROGRAMS
     ${CMAKE_CURRENT_SOURCE_DIR}/scripts/detector.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
-install(
-  FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/configs/params.yaml
-  DESTINATION share/${PROJECT_NAME}/configs
-)
+
 
 ament_export_include_directories(include)
 ament_export_dependencies(

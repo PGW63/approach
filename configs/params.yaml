@@ -2,6 +2,38 @@ approach_detector:
   ros__parameters:
     topic_name: "/camera/camera_head/color/image_raw/compressed"
     service_name: "/approach/detector"
-    model_path: "models/yolov8s.pt"
+    model_path: "models/yolov8m.pt"
     confidence_threshold: 0.25
     
+approach_node:
+  ros__parameters:
+    pointcloud_topic_name: "/camera/camera_head/depth/color/points"
+    detection_topic_name: "/approach/detector/detection_array"
+    info_topic_name: "/camera/camera_head/color/camera_info"
+    target_frame: "base"
+    sync_queue_size: 10
+    leaf_size: 0.01F
+    mean_k: 50
+    stddev_mul_thresh: 0.5F
+    ground_height: 0.02F
+    cluster_tolerance: 0.02F
+    min_cluster_size: 100
+    max_cluster_size: 10000
+    fx: 605.7842407226562F
+    fy: 604.492919921875F
+    cx: 323.7266845703125F
+    cy: 250.73828125F
+    kp_x: 0.25F
+    kp_y: 2.0F
+    kp_theta: 1.2F
+    ki_x: 0.0F
+    ki_y: 0.0F
+    ki_theta: 0.0F
+    kd_x: 0.0F
+    kd_y: 0.0F
+    kd_theta: 0.0F
+    tol_x: 0.05F
+    tol_y: 0.02F
+    tol_theta: 0.08F
+    base_to_ratationcore: 0.2F
+

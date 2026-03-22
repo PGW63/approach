@@ -11,16 +11,23 @@
 Filter::Filter() = default;
 
 void Filter::setParameters(float leaf_size, int mean_k, float stddev_mul_thresh,
-                           float ground_height) {
+                           float ground_height, float cluster_tolerance,
+                           int min_cluster_size, int max_cluster_size) {
   leaf_size_ = leaf_size;
   mean_k_ = mean_k;
   stddev_mul_thresh_ = stddev_mul_thresh;
   ground_height_ = ground_height;
+  cluster_tolerance_ = cluster_tolerance;
+  min_cluster_size_ = min_cluster_size;
+  max_cluster_size_ = max_cluster_size;
 
   RCLCPP_INFO(rclcpp::get_logger("Filter"),
               "Filter parameters set: leaf_size=%.2f, mean_k=%d, "
-              "stddev_mul_thresh=%.2f, ground_height=%.2f",
-              leaf_size_, mean_k_, stddev_mul_thresh_, ground_height_);
+              "stddev_mul_thresh=%.2f, ground_height=%.2f, "
+              "cluster_tolerance=%.2f, min_cluster_size=%d, "
+              "max_cluster_size=%d",
+              leaf_size_, mean_k_, stddev_mul_thresh_, ground_height_,
+              cluster_tolerance_, min_cluster_size_, max_cluster_size_);
 }
 
 void Filter::setCameraInfo(float fx, float fy, float cx, float cy) {
@@ -196,7 +203,7 @@ void Filter::front_slicing(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud) {
   size_t n = x_values.size() / 2;
   std::nth_element(x_values.begin(), x_values.begin() + n, x_values.end());
   float median_x = x_values[n];
-  
+
   // 3. 중앙값 기준으로 '로봇과 가까운 쪽 절반'만 남기기
   pcl::PointCloud<pcl::PointXYZ>::Ptr sliced_cloud(
       new pcl::PointCloud<pcl::PointXYZ>);

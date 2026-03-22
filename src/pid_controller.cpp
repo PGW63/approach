@@ -3,7 +3,8 @@
 
 void PIDController::setParameters(float kp_x, float kp_y, float kp_theta,
                                   float ki_x, float ki_y, float ki_theta,
-                                  float kd_x, float kd_y, float kd_theta) {
+                                  float kd_x, float kd_y, float kd_theta,
+                                  float base_to_rotationcore) {
   this->kp_x = kp_x;
   this->kp_y = kp_y;
   this->kp_theta = kp_theta;
@@ -13,6 +14,7 @@ void PIDController::setParameters(float kp_x, float kp_y, float kp_theta,
   this->kd_x = kd_x;
   this->kd_y = kd_y;
   this->kd_theta = kd_theta;
+  this->base_to_rotationcore = base_to_rotationcore;
 }
 
 geometry_msgs::msg::Twist
@@ -22,12 +24,9 @@ PIDController::compute_control(const SE2Error &se2_error, float dt) {
     return cmd_vel; // 방어 코드
 
   // 1. 센서 기준 에러를 회전 중심(CoR) 기준으로 변환
-  // 센서(카메라 등)가 바퀴 회전 중심보다 X축으로 20cm(0.2m) 앞에 있으므로
-  // 복잡한 행렬 곱셈 없이 단순히 X 오차에 0.2m를 더해주기만 하면 완벽합니다!
-  float e_x = se2_error.x + 0.2f;
-  float e_y = se2_error.y; // 좌우 치우침은 동일
+  float e_x = se2_error.x + base_to_rotationcore;
+  float e_y = se2_error.y;
 
-  // 센서와 회전 중심이 바라보는 방향(정면)이 일치하므로 각도 오차도 동일
   float e_theta = se2_error.degree_theta;
 
   // 2. PID 연산
@@ -39,7 +38,6 @@ PIDController::compute_control(const SE2Error &se2_error, float dt) {
   float d_y = (e_y - se2_error_prev.y) / dt;
   float d_theta = (e_theta - se2_error_prev.degree_theta) / dt;
 
-  // 현재 에러를 이전 에러로 업데이트
   se2_error_prev = {e_x, e_y, e_theta};
 
   float control_x = (kp_x * e_x) + (ki_x * se2_error_sum.x) + (kd_x * d_x);
