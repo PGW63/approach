@@ -1,0 +1,16 @@
+map:
+  resolution_m: 0.10
+  width_m: 5.0
+  height_m: 5.0
+  obstacle_hit_cap_per_update: 3
+  ground_hit_cap_per_update: 3
+  obstacle_weight: 2
+  ground_weight: 1
+  evidence_clip_value: 100
+  occupied_score_threshold: 10
+  free_score_threshold: 8
+  footprint_length_m: 0.70
+  footprint_width_m: 0.60
+  footprint_margin_m: 0.05
+  heading_bin_count: 16
+  unknown_is_blocked_for_feasibility: true
