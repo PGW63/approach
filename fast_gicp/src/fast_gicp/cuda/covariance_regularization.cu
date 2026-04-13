@@ -60,7 +60,16 @@ struct covariance_regularization_svd {
 
     // why this doen't work...???
     // cov = eig.eigenvectors() * values.asDiagonal() * eig.eigenvectors().inverse();
-    Eigen::Matrix3f values = Eigen::Vector3f(1e-3, 1, 1).asDiagonal();
+    Eigen::Matrix3f values;
+    values(0, 0) = 1e-3f;
+    values(0, 1) = 0.0f;
+    values(0, 2) = 0.0f;
+    values(1, 0) = 0.0f;
+    values(1, 1) = 1.0f;
+    values(1, 2) = 0.0f;
+    values(2, 0) = 0.0f;
+    values(2, 1) = 0.0f;
+    values(2, 2) = 1.0f;
     Eigen::Matrix3f v_inv = eig.eigenvectors().inverse();
     cov = eig.eigenvectors() * values * v_inv;
 

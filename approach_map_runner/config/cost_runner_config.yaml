@@ -1,8 +1,8 @@
 cost_runner:
-  feasible_map_topic: "feasible_map"
-  transition_map_topic: "transition_count_map"
-  target_point_topic: "/clicked_point"
+  feasible_map_topic: "/approach/feasible_map"
+  transition_map_topic: "/approach/transition_count_map"
+  target_point_topic: "/approach/clicked_point"
   robot_frame_id: "base"
-  output_topic: "final_cost_map"
-  arrow_topic: "best_cost_arrow"
+  output_topic: "/approach/final_cost_map"
+  arrow_topic: "/approach/best_cost_arrow"
   transform_timeout_sec: 0.1

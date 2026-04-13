@@ -10,11 +10,11 @@ planner:
   invalid_value: -1.0
 
 planner_runner:
-  feasible_map_topic: "feasible_map"
-  clearance_map_topic: "clearance_map"
-  final_cost_map_topic: "final_cost_map"
+  feasible_map_topic: "/approach/feasible_map"
+  clearance_map_topic: "/approach/clearance_map"
+  final_cost_map_topic: "/approach/final_cost_map"
   robot_frame_id: "base"
-  planning_score_topic: "planning_score_map"
-  path_topic: "planned_path"
+  planning_score_topic: "/approach/planning_score_map"
+  path_topic: "/approach/planned_path"
   goal_topic: "best_planning_goal"
   transform_timeout_sec: 0.1
