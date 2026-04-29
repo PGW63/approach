@@ -24,7 +24,6 @@ find_package(ament_index_cpp REQUIRED)
 find_package(approach_icp REQUIRED)
 find_package(approach_mapping REQUIRED)
 find_package(approach_cost REQUIRED)
-find_package(approach_planning REQUIRED)
 find_package(approach_preprocess REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(fast_gicp REQUIRED)
@@ -54,10 +53,6 @@ add_executable(node_icp_cuda
   src/node_icp_cuda.cpp
 )
 
-add_executable(approach_planning_runner_node
-  src/approach_planning_runner_node.cpp
-)
-
 target_include_directories(approach_map_runner_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
@@ -69,11 +64,6 @@ target_include_directories(approach_cost_runner_node PUBLIC
 )
 
 target_include_directories(node_icp_cuda PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-
-target_include_directories(approach_planning_runner_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
@@ -93,11 +83,6 @@ target_link_libraries(approach_cost_runner_node
 target_link_libraries(node_icp_cuda
   approach_icp::approach_icp_core
   approach_preprocess::approach_preprocess_lib
-)
-
-target_link_libraries(approach_planning_runner_node
-  approach_planning::approach_planning_lib
-  yaml-cpp
 )
 
 if(EXISTS "${FAST_GICP_LOCAL_LIB_DIR}")
@@ -120,6 +105,7 @@ ament_target_dependencies(approach_map_runner_node
   tf2_geometry_msgs
   tf2_ros
   tf2_sensor_msgs
+  inha_interfaces
 )
 
 ament_target_dependencies(approach_cost_runner_node
@@ -133,19 +119,7 @@ ament_target_dependencies(approach_cost_runner_node
   tf2_geometry_msgs
   tf2_ros
   visualization_msgs
-)
-
-ament_target_dependencies(approach_planning_runner_node
-  ament_index_cpp
-  approach_mapping
-  approach_planning
-  builtin_interfaces
-  geometry_msgs
-  nav_msgs
-  rclcpp
-  tf2
-  tf2_geometry_msgs
-  tf2_ros
+  inha_interfaces
 )
 
 ament_target_dependencies(node_icp_cuda
@@ -166,7 +140,6 @@ ament_target_dependencies(node_icp_cuda
 install(TARGETS
   approach_map_runner_node
   approach_cost_runner_node
-  approach_planning_runner_node
   node_icp_cuda
   DESTINATION lib/${PROJECT_NAME}
 )

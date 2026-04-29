@@ -1,7 +1,14 @@
 runner:
-  input_cloud_topic: "/approach/aligned_cloud"
-  clicked_point_topic: "/clicked_point"
+  input_cloud_topic: "/approach/aligned_cloud" #"/approach/accumulated_cloud" #
+  target_point_topic: "/approach/target_point"
+  mapping_service_name: "/approach/mapping"
   map_frame_id: "map"
+  obstacle_map_topic: "/approach/obstacle_map"
+  nav2_obstacle_map_topic: "/approach/nav2_obstacle_map"
+  feasible_map_topic: "/approach/feasible_map"
+  nav2_feasible_map_topic: "/approach/nav2_feasible_map"
+  clearance_map_topic: "/approach/clearance_map"
+  transition_map_topic: "/approach/transition_count_map"
   robot_filter_frame_id: "base"
   use_initial_origin: false
   allow_origin_updates_after_first_click: false

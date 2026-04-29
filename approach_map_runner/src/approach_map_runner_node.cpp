@@ -4,6 +4,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <geometry_msgs/msg/point_stamped.hpp>
@@ -22,6 +23,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include "approach_map/map.hpp"
+#include "inha_interfaces/srv/mapping_control.hpp"
 #include "approach_preprocess/preprocess.hpp"
 
 namespace
@@ -30,8 +32,15 @@ namespace
 struct RunnerConfig
 {
   std::string input_cloud_topic{"/approach/accumulated_cloud"};
-  std::string clicked_point_topic{"/clicked_point"};
+  std::string target_point_topic{"/approach/target_point"};
+  std::string mapping_service_name{"approach_mapping"};
   std::string map_frame_id{"map"};
+  std::string obstacle_map_topic{"/approach/obstacle_map"};
+  std::string nav2_obstacle_map_topic{"/approach/nav2_obstacle_map"};
+  std::string feasible_map_topic{"/approach/feasible_map"};
+  std::string nav2_feasible_map_topic{"/approach/nav2_feasible_map"};
+  std::string clearance_map_topic{"/approach/clearance_map"};
+  std::string transition_map_topic{"/approach/transition_count_map"};
   std::string robot_filter_frame_id{"base"};
   bool use_initial_origin{false};
   bool allow_origin_updates_after_first_click{false};
@@ -79,8 +88,24 @@ RunnerConfig loadRunnerConfig(const std::string & yaml_path)
 
   RunnerConfig config;
   config.input_cloud_topic = readRequired<std::string>(runner, "input_cloud_topic");
-  config.clicked_point_topic = readRequired<std::string>(runner, "clicked_point_topic");
+  config.target_point_topic = runner["target_point_topic"] ?
+    runner["target_point_topic"].as<std::string>() :
+    readOptional<std::string>(runner, "clicked_point_topic", config.target_point_topic);
+  config.mapping_service_name = readOptional<std::string>(
+    runner, "mapping_service_name", config.mapping_service_name);
   config.map_frame_id = readRequired<std::string>(runner, "map_frame_id");
+  config.obstacle_map_topic = readOptional<std::string>(
+    runner, "obstacle_map_topic", config.obstacle_map_topic);
+  config.nav2_obstacle_map_topic = readOptional<std::string>(
+    runner, "nav2_obstacle_map_topic", config.nav2_obstacle_map_topic);
+  config.feasible_map_topic = readOptional<std::string>(
+    runner, "feasible_map_topic", config.feasible_map_topic);
+  config.nav2_feasible_map_topic = readOptional<std::string>(
+    runner, "nav2_feasible_map_topic", config.nav2_feasible_map_topic);
+  config.clearance_map_topic = readOptional<std::string>(
+    runner, "clearance_map_topic", config.clearance_map_topic);
+  config.transition_map_topic = readOptional<std::string>(
+    runner, "transition_map_topic", config.transition_map_topic);
   config.robot_filter_frame_id =
     readOptional<std::string>(runner, "robot_filter_frame_id", config.robot_filter_frame_id);
   config.use_initial_origin = readRequired<bool>(runner, "use_initial_origin");
@@ -162,6 +187,54 @@ nav_msgs::msg::OccupancyGrid toOccupancyGrid(
   return grid;
 }
 
+nav_msgs::msg::OccupancyGrid toNav2OccupancyGrid(
+  const approach_map::GridDataI8 & layer,
+  const std_msgs::msg::Header & header)
+{
+  auto grid = makeBaseGrid(layer.meta, header);
+
+  for (std::size_t i = 0; i < layer.values.size(); ++i) {
+    const int8_t value = layer.values[i];
+    if (value < 0) {
+      continue;
+    }
+
+    if (value >= 100) {
+      grid.data[i] = 100;
+    } else if (value <= 0) {
+      grid.data[i] = 0;
+    } else {
+      grid.data[i] = -1;
+    }
+  }
+
+  return grid;
+}
+
+nav_msgs::msg::OccupancyGrid toNav2FeasibleOccupancyGrid(
+  const approach_map::GridDataI8 & layer,
+  const std_msgs::msg::Header & header)
+{
+  auto grid = makeBaseGrid(layer.meta, header);
+
+  for (std::size_t i = 0; i < layer.values.size(); ++i) {
+    const int8_t value = layer.values[i];
+    if (value < 0) {
+      continue;
+    }
+
+    if (value >= 100) {
+      grid.data[i] = 0;
+    } else if (value <= 0) {
+      grid.data[i] = 100;
+    } else {
+      grid.data[i] = -1;
+    }
+  }
+
+  return grid;
+}
+
 nav_msgs::msg::OccupancyGrid toClearanceGrid(
   const approach_map::GridDataF32 & layer,
   const std_msgs::msg::Header & header,
@@ -223,6 +296,8 @@ nav_msgs::msg::OccupancyGrid toTransitionGrid(
 class ApproachMapRunnerNode : public rclcpp::Node
 {
 public:
+  using MappingControl = inha_interfaces::srv::MappingControl;
+
   ApproachMapRunnerNode()
   : Node("approach_map_runner_node")
   {
@@ -249,15 +324,28 @@ public:
     builder_ = std::make_unique<approach_map::Builder>(map_config_, initial_origin);
     origin_ready_ = runner_config_.use_initial_origin;
 
-    obstacle_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("obstacle_map", 1);
-    clearance_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("clearance_map", 1);
-    feasible_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("feasible_map", 1);
+    obstacle_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>(
+      runner_config_.obstacle_map_topic, 1);
+    nav2_obstacle_map_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>(
+      runner_config_.nav2_obstacle_map_topic, 1);
+    nav2_feasible_map_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>(
+      runner_config_.nav2_feasible_map_topic, 1);
+    clearance_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>(
+      runner_config_.clearance_map_topic, 1);
+    feasible_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>(
+      runner_config_.feasible_map_topic, 1);
     transition_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>(
-      "transition_count_map", 1);
-
-    clicked_point_sub_ = this->create_subscription<geometry_msgs::msg::PointStamped>(
-      runner_config_.clicked_point_topic, 10,
-      std::bind(&ApproachMapRunnerNode::clickedPointCallback, this, std::placeholders::_1));
+      runner_config_.transition_map_topic, 1);
+    auto target_point_qos = rclcpp::QoS(rclcpp::KeepLast(1));
+    target_point_qos.reliable();
+    target_point_qos.transient_local();
+    target_point_pub_ = this->create_publisher<geometry_msgs::msg::PointStamped>(
+      runner_config_.target_point_topic, target_point_qos);
+    mapping_service_ = this->create_service<MappingControl>(
+      runner_config_.mapping_service_name,
+      std::bind(
+        &ApproachMapRunnerNode::mappingServiceCallback, this, std::placeholders::_1,
+        std::placeholders::_2));
 
     cloud_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
       runner_config_.input_cloud_topic, rclcpp::SensorDataQoS(),
@@ -266,6 +354,10 @@ public:
     RCLCPP_INFO(this->get_logger(), "Loaded map config: %s", map_config_path.c_str());
     RCLCPP_INFO(this->get_logger(), "Loaded runner config: %s", runner_config_path.c_str());
     RCLCPP_INFO(this->get_logger(), "Mapping frame: %s", runner_config_.map_frame_id.c_str());
+    RCLCPP_INFO(
+      this->get_logger(), "Mapping service: %s", runner_config_.mapping_service_name.c_str());
+    RCLCPP_INFO(
+      this->get_logger(), "Target point topic: %s", runner_config_.target_point_topic.c_str());
   }
 
 private:
@@ -274,20 +366,79 @@ private:
     return tf2::durationFromSec(std::max(0.0, runner_config_.transform_timeout_sec));
   }
 
-  bool transformClickedPoint(
-    const geometry_msgs::msg::PointStamped & input,
-    geometry_msgs::msg::PointStamped & output)
+  void publishTargetPoint(double x_m, double y_m)
   {
-    try {
-      output = tf_buffer_->transform(input, runner_config_.map_frame_id, transformTimeout());
-      return true;
-    } catch (const tf2::TransformException & ex) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Failed to transform clicked point to %s: %s",
-        runner_config_.map_frame_id.c_str(), ex.what());
-      return false;
+    geometry_msgs::msg::PointStamped target_msg;
+    target_msg.header.stamp = this->now();
+    target_msg.header.frame_id = runner_config_.map_frame_id;
+    target_msg.point.x = x_m;
+    target_msg.point.y = y_m;
+    target_msg.point.z = 0.0;
+    target_point_pub_->publish(target_msg);
+  }
+
+  void resetOriginFromTarget(double x_m, double y_m)
+  {
+    const approach_map::Origin origin{
+      x_m - 0.5 * map_config_.width_m,
+      y_m - 0.5 * map_config_.height_m};
+
+    builder_->setOrigin(origin);
+    origin_ready_ = true;
+
+    RCLCPP_INFO(
+      this->get_logger(), "Map origin reset from service target in %s: origin=(%.3f, %.3f)",
+      runner_config_.map_frame_id.c_str(), origin.x_m, origin.y_m);
+  }
+
+  void mappingServiceCallback(
+    const std::shared_ptr<MappingControl::Request> request,
+    std::shared_ptr<MappingControl::Response> response)
+  {
+    if (!request->start) {
+      mapping_enabled_ = false;
+      origin_ready_ = false;
+      RCLCPP_INFO(this->get_logger(), "Mapping stopped by service request.");
+      response->success = true;
+      return;
     }
+
+    if (request->mode != 0) {
+      RCLCPP_WARN(
+        this->get_logger(), "Unsupported mapping mode: %d. Only mode 0 is implemented.",
+        request->mode);
+      response->success = false;
+      return;
+    }
+
+    if (request->target.size() < 2U) {
+      RCLCPP_WARN(
+        this->get_logger(),
+        "Mapping start request requires target[0] and target[1], but received %zu values.",
+        request->target.size());
+      response->success = false;
+      return;
+    }
+
+    const double target_x_m = static_cast<double>(request->target[0]);
+    const double target_y_m = static_cast<double>(request->target[1]);
+    if (!std::isfinite(target_x_m) || !std::isfinite(target_y_m)) {
+      RCLCPP_WARN(
+        this->get_logger(), "Mapping start request contains non-finite target coordinates.");
+      response->success = false;
+      return;
+    }
+
+    resetOriginFromTarget(target_x_m, target_y_m);
+    publishTargetPoint(target_x_m, target_y_m);
+    mapping_enabled_ = true;
+
+    RCLCPP_INFO(
+      this->get_logger(),
+      "Mapping started: mode=%d target=(%.3f, %.3f)%s",
+      request->mode, target_x_m, target_y_m,
+      request->target.size() > 2U ? " (additional target values ignored)" : "");
+    response->success = true;
   }
 
   bool transformCloud(
@@ -312,38 +463,20 @@ private:
     }
   }
 
-  void clickedPointCallback(const geometry_msgs::msg::PointStamped::SharedPtr msg)
-  {
-    if (origin_ready_ && !runner_config_.allow_origin_updates_after_first_click) {
-      RCLCPP_INFO_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Ignoring clicked point because origin updates are disabled after initialization.");
-      return;
-    }
-
-    geometry_msgs::msg::PointStamped transformed_point;
-    if (!transformClickedPoint(*msg, transformed_point)) {
-      return;
-    }
-
-    const approach_map::Origin origin{
-      transformed_point.point.x - 0.5 * map_config_.width_m,
-      transformed_point.point.y - 0.5 * map_config_.height_m};
-
-    builder_->setOrigin(origin);
-    origin_ready_ = true;
-
-    RCLCPP_INFO(
-      this->get_logger(), "Map origin reset from clicked point in %s: origin=(%.3f, %.3f)",
-      runner_config_.map_frame_id.c_str(), origin.x_m, origin.y_m);
-  }
-
   void cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
   {
+    if (!mapping_enabled_) {
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 3000,
+        "Waiting for mapping start service request on %s.",
+        runner_config_.mapping_service_name.c_str());
+      return;
+    }
+
     if (!origin_ready_) {
       RCLCPP_WARN_THROTTLE(
         this->get_logger(), *this->get_clock(), 3000,
-        "Waiting for /clicked_point or initial origin before mapping.");
+        "Waiting for a valid mapping target before mapping.");
       return;
     }
 
@@ -405,13 +538,15 @@ private:
     std_msgs::msg::Header header = transformed_cloud.header;
     header.frame_id = runner_config_.map_frame_id;
 
-    obstacle_pub_->publish(toOccupancyGrid(builder_->buildObstacleLayer(), header));
+    const auto obstacle_layer = builder_->buildObstacleLayer();
+    const auto feasible_layer = builder_->buildHeadingFeasibleLayer(
+      static_cast<std::size_t>(std::max(0, runner_config_.publish_heading_bin)));
+    obstacle_pub_->publish(toOccupancyGrid(obstacle_layer, header));
+    nav2_obstacle_map_pub_->publish(toNav2OccupancyGrid(obstacle_layer, header));
+    nav2_feasible_map_pub_->publish(toNav2FeasibleOccupancyGrid(feasible_layer, header));
     clearance_pub_->publish(toClearanceGrid(
       builder_->buildClearanceLayer(), header, runner_config_.clearance_display_cap_m));
-    feasible_pub_->publish(toOccupancyGrid(
-      builder_->buildHeadingFeasibleLayer(
-        static_cast<std::size_t>(std::max(0, runner_config_.publish_heading_bin))),
-      header));
+    feasible_pub_->publish(toOccupancyGrid(feasible_layer, header));
     transition_pub_->publish(toTransitionGrid(
       builder_->gridMeta(), builder_->stateTransitionCounts(), builder_->observedMask(), header));
   }
@@ -423,13 +558,17 @@ private:
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   bool origin_ready_{false};
+  bool mapping_enabled_{false};
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
-  rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr clicked_point_sub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr obstacle_pub_;
+  rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr nav2_obstacle_map_pub_;
+  rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr nav2_feasible_map_pub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr clearance_pub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr feasible_pub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr transition_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr target_point_pub_;
+  rclcpp::Service<MappingControl>::SharedPtr mapping_service_;
 };
 
 }  // namespace

@@ -19,7 +19,7 @@
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/create_timer_ros.h>
 #include <tf2_ros/transform_listener.h>
-#include <visualization_msgs/msg/marker.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <yaml-cpp/yaml.h>
 
 #include "approach_cost/cost.hpp"
@@ -31,10 +31,10 @@ struct CostRunnerConfig
 {
   std::string feasible_map_topic{"feasible_map"};
   std::string transition_map_topic{"transition_count_map"};
-  std::string target_point_topic{"/clicked_point"};
+  std::string target_point_topic{"/approach/target_point"};
   std::string robot_frame_id{"base_link"};
   std::string output_topic{"final_cost_map"};
-  std::string arrow_topic{"best_cost_arrow"};
+  std::string arrow_topic{"/approach/best_cost_arrow"};
   double transform_timeout_sec{0.1};
 };
 
@@ -175,50 +175,24 @@ std::optional<std::size_t> findLowestCostCellIndex(const approach_map::GridDataF
   return best_index;
 }
 
-visualization_msgs::msg::Marker makeDeleteArrowMarker(const std_msgs::msg::Header & header)
-{
-  visualization_msgs::msg::Marker marker;
-  marker.header = header;
-  marker.ns = "best_cost";
-  marker.id = 0;
-  marker.action = visualization_msgs::msg::Marker::DELETE;
-  return marker;
-}
-
-visualization_msgs::msg::Marker makeArrowMarker(
+geometry_msgs::msg::PoseStamped makeBestCostPose(
   const std_msgs::msg::Header & header,
   const approach_map::XYPoint & from_point,
-  const approach_map::XYPoint & to_point,
-  double resolution_m)
+  const approach_map::XYPoint & to_point)
 {
-  visualization_msgs::msg::Marker marker;
-  marker.header = header;
-  marker.ns = "best_cost";
-  marker.id = 0;
-  marker.type = visualization_msgs::msg::Marker::ARROW;
-  marker.action = visualization_msgs::msg::Marker::ADD;
-  marker.pose.orientation.w = 1.0;
-  marker.scale.x = std::max(0.02, 0.25 * resolution_m);
-  marker.scale.y = std::max(0.04, 0.50 * resolution_m);
-  marker.scale.z = std::max(0.06, 0.75 * resolution_m);
-  marker.color.r = 0.95F;
-  marker.color.g = 0.25F;
-  marker.color.b = 0.10F;
-  marker.color.a = 0.95F;
+  geometry_msgs::msg::PoseStamped pose;
+  pose.header = header;
+  pose.pose.position.x = from_point.x_m;
+  pose.pose.position.y = from_point.y_m;
+  pose.pose.position.z = 0.0;
 
-  geometry_msgs::msg::Point start;
-  start.x = from_point.x_m;
-  start.y = from_point.y_m;
-  start.z = 0.05;
+  const double yaw = std::atan2(
+    to_point.y_m - from_point.y_m,
+    to_point.x_m - from_point.x_m);
+  pose.pose.orientation.z = std::sin(yaw * 0.5);
+  pose.pose.orientation.w = std::cos(yaw * 0.5);
 
-  geometry_msgs::msg::Point end;
-  end.x = to_point.x_m;
-  end.y = to_point.y_m;
-  end.z = 0.05;
-
-  marker.points.push_back(start);
-  marker.points.push_back(end);
-  return marker;
+  return pose;
 }
 
 class ApproachCostRunnerNode : public rclcpp::Node
@@ -244,11 +218,14 @@ public:
 
     final_cost_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>(
       runner_config_.output_topic, 1);
-    best_arrow_pub_ = this->create_publisher<visualization_msgs::msg::Marker>(
+    best_arrow_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>(
       runner_config_.arrow_topic, 1);
 
+    auto target_point_qos = rclcpp::QoS(rclcpp::KeepLast(1));
+    target_point_qos.reliable();
+    target_point_qos.transient_local();
     target_point_sub_ = this->create_subscription<geometry_msgs::msg::PointStamped>(
-      runner_config_.target_point_topic, 10,
+      runner_config_.target_point_topic, target_point_qos,
       std::bind(&ApproachCostRunnerNode::targetPointCallback, this, std::placeholders::_1));
 
     feasible_map_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
@@ -273,7 +250,8 @@ private:
     const geometry_msgs::msg::PointStamped & input,
     const std::string & target_frame,
     geometry_msgs::msg::PointStamped & output,
-    const char * point_name)
+    const char * point_name,
+    bool use_latest_transform = false)
   {
     if (input.header.frame_id.empty()) {
       RCLCPP_WARN_THROTTLE(
@@ -288,7 +266,13 @@ private:
     }
 
     try {
-      output = tf_buffer_->transform(input, target_frame, transformTimeout());
+      auto transform_input = input;
+      if (use_latest_transform) {
+        transform_input.header.stamp.sec = 0;
+        transform_input.header.stamp.nanosec = 0;
+      }
+
+      output = tf_buffer_->transform(transform_input, target_frame, transformTimeout());
       return true;
     } catch (const tf2::TransformException & ex) {
       RCLCPP_WARN_THROTTLE(
@@ -338,7 +322,6 @@ private:
   void feasibleMapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
   {
     if (!latest_target_point_.has_value()) {
-      best_arrow_pub_->publish(makeDeleteArrowMarker(msg->header));
       RCLCPP_WARN_THROTTLE(
         this->get_logger(), *this->get_clock(), 3000,
         "Waiting for target point on %s before publishing cost map.",
@@ -356,7 +339,7 @@ private:
 
     geometry_msgs::msg::PointStamped transformed_target;
     if (!transformPoint(
-        latest_target_point_.value(), map_frame, transformed_target, "target point"))
+        latest_target_point_.value(), map_frame, transformed_target, "target point", true))
     {
       return;
     }
@@ -391,29 +374,17 @@ private:
 
     const auto best_index = findLowestCostCellIndex(final_cost_layer);
     if (!best_index.has_value()) {
-      best_arrow_pub_->publish(makeDeleteArrowMarker(msg->header));
       RCLCPP_WARN_THROTTLE(
         this->get_logger(), *this->get_clock(), 3000,
-        "No valid cell found in final_cost_map for arrow visualization.");
+        "No valid cell found in final_cost_map for best cost pose.");
       return;
     }
 
     const auto best_point = cellCenter(final_cost_layer.meta, best_index.value());
     const auto target_point = input.target_point_m;
-    const double arrow_length_m = std::hypot(
-      target_point.x_m - best_point.x_m,
-      target_point.y_m - best_point.y_m);
 
-    if (arrow_length_m <= 1.0e-6) {
-      best_arrow_pub_->publish(makeDeleteArrowMarker(msg->header));
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Best-cost cell center matches the target point, so the arrow is hidden.");
-      return;
-    }
-
-    best_arrow_pub_->publish(makeArrowMarker(
-      msg->header, best_point, target_point, final_cost_layer.meta.resolution_m));
+    best_arrow_pub_->publish(makeBestCostPose(
+      msg->header, best_point, target_point));
   }
 
   approach_cost::FinalCostConfig cost_config_{};
@@ -427,7 +398,7 @@ private:
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr feasible_map_sub_;
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr transition_map_sub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr final_cost_pub_;
-  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr best_arrow_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr best_arrow_pub_;
 };
 
 }  // namespace
