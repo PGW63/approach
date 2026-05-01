@@ -27,7 +27,6 @@ public:
     map_frame_ = this->declare_parameter<std::string>("map_frame", "map");
     base_frame_ = this->declare_parameter<std::string>("base_frame", "base_nav");
     check_hz_ = this->declare_parameter<double>("check_hz", 5.0);
-    wait_seconds_ = this->declare_parameter<double>("wait_seconds", 5.0);
     enable_service_name_ = this->declare_parameter<std::string>(
       "enable_service_name", "/approach/waiting/set_enable");
     // TODO: arm_id 적용
@@ -59,16 +58,21 @@ private:
       response->message = "approach_waiting enabled";
       RCLCPP_INFO(this->get_logger(), "Enabled: monitoring robot position vs map bounds");
     } else {
-      stopMonitoring();
+      const bool keep_pending_target_call = has_triggered_;
+      stopMonitoring(!keep_pending_target_call);
       response->success = true;
-      response->message = "approach_waiting disabled";
-      RCLCPP_INFO(this->get_logger(), "Disabled");
+      response->message = keep_pending_target_call ?
+        "approach_waiting disabled; pending target call kept" :
+        "approach_waiting disabled";
+      RCLCPP_INFO(
+        this->get_logger(), "Disabled%s",
+        keep_pending_target_call ? "; pending target call kept" : "");
     }
   }
 
   void startMonitoring()
   {
-    stopMonitoring();
+    stopMonitoring(true);
 
     auto map_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable();
     map_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
@@ -83,14 +87,16 @@ private:
     enabled_ = true;
   }
 
-  void stopMonitoring()
+  void stopMonitoring(bool cancel_pending_target_call)
   {
     map_sub_.reset();
     check_timer_.reset();
-    wait_timer_.reset();
+    if (cancel_pending_target_call) {
+      wait_timer_.reset();
+      has_triggered_ = false;
+    }
     enabled_ = false;
     map_received_ = false;
-    has_triggered_ = false;
   }
 
   void mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
@@ -137,13 +143,9 @@ private:
       has_triggered_ = true;
       RCLCPP_INFO(
         this->get_logger(),
-        "Robot entered map area at (%.3f, %.3f). Waiting %.1f s before calling %s.",
-        rx, ry, wait_seconds_, target_service_name_.c_str());
-
-      const auto wait_period = std::chrono::milliseconds(
-        static_cast<int>(wait_seconds_ * 1000.0));
-      wait_timer_ = this->create_wall_timer(
-        wait_period, std::bind(&ApproachWaitingNode::callTargetService, this));
+        "Robot entered map area at (%.3f, %.3f). Calling %s.",
+        rx, ry, target_service_name_.c_str());
+      callTargetService();
     }
   }
 
@@ -152,14 +154,22 @@ private:
     wait_timer_.reset();
 
     if (!target_client_->service_is_ready()) {
-      RCLCPP_ERROR(
+      RCLCPP_WARN(
         this->get_logger(),
-        "Target service %s not available", target_service_name_.c_str());
+        "Target service %s not available; retrying in 1.0 s",
+        target_service_name_.c_str());
+      wait_timer_ = this->create_wall_timer(
+        1s, std::bind(&ApproachWaitingNode::callTargetService, this));
       return;
     }
 
     auto request = std::make_shared<SetEnable::Request>();
     request->enable = true;
+
+    RCLCPP_INFO(
+      this->get_logger(),
+      "Calling target service %s with enable=%d",
+      target_service_name_.c_str(), static_cast<int>(request->enable));
 
     target_client_->async_send_request(
       request,
@@ -169,6 +179,7 @@ private:
           this->get_logger(),
           "Target service response: success=%d message=%s",
           static_cast<int>(resp->success), resp->message.c_str());
+        has_triggered_ = false;
       });
   }
 
@@ -178,7 +189,6 @@ private:
   std::string enable_service_name_;
   std::string target_service_name_;
   double check_hz_{5.0};
-  double wait_seconds_{5.0};
 
   bool enabled_{false};
   bool map_received_{false};

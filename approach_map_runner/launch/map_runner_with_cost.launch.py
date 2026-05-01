@@ -25,6 +25,12 @@ def generate_launch_description():
             output="screen",
             parameters=[{"use_sim_time": use_sim_time}],
         ),
+        Node(
+            package="approach_map_runner",
+            executable="approach_waiting",
+            output="screen",
+            parameters=[{"use_sim_time": use_sim_time}],
+        ),
         # Node(
         #     package="approach_map_runner",
         #     executable="approach_planning_runner_node",
