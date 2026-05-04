@@ -32,7 +32,7 @@ struct CostRunnerConfig
   std::string feasible_map_topic{"feasible_map"};
   std::string transition_map_topic{"transition_count_map"};
   std::string target_point_topic{"/approach/target_point"};
-  std::string robot_frame_id{"base_link"};
+  std::string robot_frame_id{"base"};
   std::string output_topic{"final_cost_map"};
   std::string arrow_topic{"/approach/best_cost_arrow"};
   double transform_timeout_sec{0.1};
