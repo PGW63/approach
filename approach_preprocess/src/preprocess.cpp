@@ -10,14 +10,24 @@ namespace approach_preprocess
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr downsample(
   const pcl::PointCloud<pcl::PointXYZ>::Ptr & cloud,
-  const PreprocessConfig & config)
+  double voxel_leaf_size)
 {
   pcl::PointCloud<pcl::PointXYZ>::Ptr downsampled(new pcl::PointCloud<pcl::PointXYZ>());
   pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
   voxel_filter.setInputCloud(cloud);
-  voxel_filter.setLeafSize(config.voxel_leaf_size, config.voxel_leaf_size, config.voxel_leaf_size);
+  voxel_filter.setLeafSize(
+    static_cast<float>(voxel_leaf_size),
+    static_cast<float>(voxel_leaf_size),
+    static_cast<float>(voxel_leaf_size));
   voxel_filter.filter(*downsampled);
   return downsampled;
+}
+
+pcl::PointCloud<pcl::PointXYZ>::Ptr downsample(
+  const pcl::PointCloud<pcl::PointXYZ>::Ptr & cloud,
+  const PreprocessConfig & config)
+{
+  return downsample(cloud, config.voxel_leaf_size);
 }
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr removeNaN(

@@ -3,6 +3,10 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <string>
+
+#include <ament_index_cpp/get_package_share_directory.hpp>
+#include <yaml-cpp/yaml.h>
 
 namespace
 {
@@ -46,9 +50,62 @@ Eigen::Matrix4f makePlanarTransform(double x, double y, double yaw)
     return transform;
 }
 
+template<typename T>
+T readOptional(const YAML::Node & node, const char * key, const T & default_value)
+{
+    return node && node[key] ? node[key].as<T>() : default_value;
+}
+
+approach_preprocess::PreprocessConfig loadPreprocessConfigFromYaml(
+    const std::string & yaml_path,
+    const approach_preprocess::PreprocessConfig & defaults)
+{
+    approach_preprocess::PreprocessConfig config = defaults;
+
+    YAML::Node root;
+    try {
+        root = YAML::LoadFile(yaml_path);
+    } catch (const std::exception &) {
+        return config;
+    }
+
+    const YAML::Node icp_node = root["icp"] ? root["icp"] : root;
+    const YAML::Node pp = icp_node["preprocess"] ? icp_node["preprocess"] : icp_node;
+
+    config.remove_nan_enable =
+        readOptional<bool>(pp, "remove_nan_enable", config.remove_nan_enable);
+    config.downsample_enable =
+        readOptional<bool>(pp, "downsample_enable", config.downsample_enable);
+    config.outlier_removal_enable =
+        readOptional<bool>(pp, "outlier_removal_enable", config.outlier_removal_enable);
+    config.robot_filter_enable =
+        readOptional<bool>(pp, "robot_filter_enable", config.robot_filter_enable);
+    config.ground_removal_enable =
+        readOptional<bool>(pp, "ground_removal_enable", config.ground_removal_enable);
+    config.voxel_leaf_size =
+        readOptional<double>(pp, "voxel_leaf_size", config.voxel_leaf_size);
+    config.registration_voxel_leaf_size = readOptional<double>(
+        pp, "registration_voxel_leaf_size", config.registration_voxel_leaf_size);
+    config.passthrough_robot_x_min =
+        readOptional<double>(pp, "passthrough_robot_x_min", config.passthrough_robot_x_min);
+    config.passthrough_robot_x_max =
+        readOptional<double>(pp, "passthrough_robot_x_max", config.passthrough_robot_x_max);
+    config.passthrough_robot_y_min =
+        readOptional<double>(pp, "passthrough_robot_y_min", config.passthrough_robot_y_min);
+    config.passthrough_robot_y_max =
+        readOptional<double>(pp, "passthrough_robot_y_max", config.passthrough_robot_y_max);
+    config.passthrough_ground_z_ =
+        readOptional<double>(pp, "passthrough_ground_z", config.passthrough_ground_z_);
+    config.mean_k = readOptional<int>(pp, "mean_k", config.mean_k);
+    config.stddev_mul_thresh =
+        readOptional<double>(pp, "stddev_mul_thresh", config.stddev_mul_thresh);
+
+    return config;
+}
+
 }  // namespace
 
-NodeICPCuda::NodeICPCuda() : 
+NodeICPCuda::NodeICPCuda() :
     Node("node_icp_cuda"),
     tf_buffer_(this->get_clock()),
     tf_listener_(tf_buffer_)
@@ -56,12 +113,20 @@ NodeICPCuda::NodeICPCuda() :
     measure_registration_metrics_ =
         this->declare_parameter<bool>("measure_registration_metrics", false);
 
+    const auto runner_share =
+        ament_index_cpp::get_package_share_directory("approach_map_runner");
+    const std::string icp_config_path = runner_share + "/config/icp_config.yaml";
+    preprocess_config_ = loadPreprocessConfigFromYaml(icp_config_path, preprocess_config_);
+    RCLCPP_INFO(
+        this->get_logger(),
+        "Loaded ICP preprocess config: voxel_leaf_size=%.3f registration_voxel_leaf_size=%.3f",
+        preprocess_config_.voxel_leaf_size,
+        preprocess_config_.registration_voxel_leaf_size);
+
     accumulation_service_ = this->create_service<inha_interfaces::srv::Accumulation>(
         service_config_.accumulation_service_name,
         std::bind(&NodeICPCuda::service_callback, this, std::placeholders::_1, std::placeholders::_2)
     );
-
-
 
     create_publisher_topic();
 
@@ -207,6 +272,16 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr NodeICPCuda::preprocess_cloud_for_registrati
     const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud_in_base) const
 {
     auto processed = preprocess_cloud_for_mapping(cloud_in_base);
+
+    // Registration uses a (typically larger) leaf size so ICP stays fast
+    // even when mapping path keeps a denser cloud.
+    if (preprocess_config_.downsample_enable &&
+        !processed->empty() &&
+        preprocess_config_.registration_voxel_leaf_size > preprocess_config_.voxel_leaf_size)
+    {
+        processed = approach_preprocess::downsample(
+            processed, preprocess_config_.registration_voxel_leaf_size);
+    }
 
     if (preprocess_config_.ground_removal_enable && !processed->empty()) {
         processed = approach_preprocess::removeGroundPoints(processed, preprocess_config_);

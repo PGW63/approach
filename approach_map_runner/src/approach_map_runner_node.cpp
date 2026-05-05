@@ -27,7 +27,6 @@
 
 #include "approach_map/map.hpp"
 #include "inha_interfaces/srv/mapping_control.hpp"
-#include "inha_interfaces/srv/set_enable.hpp"
 #include "approach_preprocess/preprocess.hpp"
 
 namespace
@@ -39,7 +38,6 @@ struct RunnerConfig
   std::string target_point_topic{"/approach/target_point"};
   std::string grasp_targets_topic{"/approach/grasp_targets"};
   std::string mapping_service_name{"approach_mapping"};
-  std::string waiting_enable_service_name{"/approach/waiting/set_enable"};
   std::string map_frame_id{"map"};
   std::string obstacle_map_topic{"/approach/obstacle_map"};
   std::string nav2_obstacle_map_topic{"/approach/nav2_obstacle_map"};
@@ -102,8 +100,6 @@ RunnerConfig loadRunnerConfig(const std::string & yaml_path)
     runner, "grasp_targets_topic", config.grasp_targets_topic);
   config.mapping_service_name = readOptional<std::string>(
     runner, "mapping_service_name", config.mapping_service_name);
-  config.waiting_enable_service_name = readOptional<std::string>(
-    runner, "waiting_enable_service_name", config.waiting_enable_service_name);
   config.map_frame_id = readRequired<std::string>(runner, "map_frame_id");
   config.obstacle_map_topic = readOptional<std::string>(
     runner, "obstacle_map_topic", config.obstacle_map_topic);
@@ -310,7 +306,6 @@ class ApproachMapRunnerNode : public rclcpp::Node
 {
 public:
   using MappingControl = inha_interfaces::srv::MappingControl;
-  using SetEnable = inha_interfaces::srv::SetEnable;
 
   ApproachMapRunnerNode()
   : Node("approach_map_runner_node")
@@ -362,9 +357,6 @@ public:
       std::bind(
         &ApproachMapRunnerNode::mappingServiceCallback, this, std::placeholders::_1,
         std::placeholders::_2));
-
-    waiting_enable_client_ = this->create_client<SetEnable>(
-      runner_config_.waiting_enable_service_name);
 
     cloud_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
       runner_config_.input_cloud_topic, rclcpp::SensorDataQoS(),
@@ -436,7 +428,6 @@ private:
       mapping_enabled_ = false;
       origin_ready_ = false;
       RCLCPP_INFO(this->get_logger(), "Mapping stopped by service request.");
-      callWaitingEnable(false);
       response->success = true;
       return;
     }
@@ -534,33 +525,7 @@ private:
       "Mapping started: mode=0 target=(%.3f, %.3f)%s",
       target_x_m, target_y_m,
       request->target.size() > 2U ? " (additional target values ignored)" : "");
-    callWaitingEnable(true);
     response->success = true;
-  }
-
-  void callWaitingEnable(bool enable)
-  {
-    if (!waiting_enable_client_->service_is_ready()) {
-      RCLCPP_WARN(
-        this->get_logger(),
-        "Waiting enable service %s not ready; skipping call.",
-        runner_config_.waiting_enable_service_name.c_str());
-      return;
-    }
-
-    auto request = std::make_shared<SetEnable::Request>();
-    request->enable = enable;
-
-    waiting_enable_client_->async_send_request(
-      request,
-      [this, enable](rclcpp::Client<SetEnable>::SharedFuture future) {
-        const auto resp = future.get();
-        RCLCPP_INFO(
-          this->get_logger(),
-          "Waiting enable(%d) response: success=%d message=%s",
-          static_cast<int>(enable), static_cast<int>(resp->success),
-          resp->message.c_str());
-      });
   }
 
   bool transformCloud(
@@ -693,7 +658,6 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr target_point_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr grasp_targets_pub_;
   rclcpp::Service<MappingControl>::SharedPtr mapping_service_;
-  rclcpp::Client<SetEnable>::SharedPtr waiting_enable_client_;
 };
 
 }  // namespace

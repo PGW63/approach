@@ -53,10 +53,6 @@ add_executable(node_icp_cuda
   src/node_icp_cuda.cpp
 )
 
-add_executable(approach_waiting
-  src/approach_waiting.cpp
-)
-
 target_include_directories(approach_map_runner_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
@@ -68,11 +64,6 @@ target_include_directories(approach_cost_runner_node PUBLIC
 )
 
 target_include_directories(node_icp_cuda PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-
-target_include_directories(approach_waiting PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
@@ -92,6 +83,7 @@ target_link_libraries(approach_cost_runner_node
 target_link_libraries(node_icp_cuda
   approach_icp::approach_icp_core
   approach_preprocess::approach_preprocess_lib
+  yaml-cpp
 )
 
 if(EXISTS "${FAST_GICP_LOCAL_LIB_DIR}")
@@ -132,6 +124,7 @@ ament_target_dependencies(approach_cost_runner_node
 )
 
 ament_target_dependencies(node_icp_cuda
+  ament_index_cpp
   approach_icp
   approach_preprocess
   fast_gicp
@@ -146,20 +139,10 @@ ament_target_dependencies(node_icp_cuda
   tf2_ros
 )
 
-ament_target_dependencies(approach_waiting
-  geometry_msgs
-  inha_interfaces
-  nav_msgs
-  rclcpp
-  tf2
-  tf2_ros
-)
-
 install(TARGETS
   approach_map_runner_node
   approach_cost_runner_node
   node_icp_cuda
-  approach_waiting
   DESTINATION lib/${PROJECT_NAME}
 )
 
