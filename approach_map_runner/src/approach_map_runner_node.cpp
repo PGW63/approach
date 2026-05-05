@@ -2,12 +2,15 @@
 #include <cmath>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <geometry_msgs/msg/point_stamped.hpp>
+#include <geometry_msgs/msg/pose_array.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <pcl_conversions/pcl_conversions.h>
 #include <rclcpp/rclcpp.hpp>
@@ -34,6 +37,7 @@ struct RunnerConfig
 {
   std::string input_cloud_topic{"/approach/accumulated_cloud"};
   std::string target_point_topic{"/approach/target_point"};
+  std::string grasp_targets_topic{"/approach/grasp_targets"};
   std::string mapping_service_name{"approach_mapping"};
   std::string waiting_enable_service_name{"/approach/waiting/set_enable"};
   std::string map_frame_id{"map"};
@@ -46,6 +50,7 @@ struct RunnerConfig
   std::string robot_filter_frame_id{"base"};
   bool use_initial_origin{false};
   bool allow_origin_updates_after_first_click{false};
+  double target_update_threshold_m{2.0};
   double initial_origin_x_m{0.0};
   double initial_origin_y_m{0.0};
   double ground_z_min_m{-0.20};
@@ -93,6 +98,8 @@ RunnerConfig loadRunnerConfig(const std::string & yaml_path)
   config.target_point_topic = runner["target_point_topic"] ?
     runner["target_point_topic"].as<std::string>() :
     readOptional<std::string>(runner, "clicked_point_topic", config.target_point_topic);
+  config.grasp_targets_topic = readOptional<std::string>(
+    runner, "grasp_targets_topic", config.grasp_targets_topic);
   config.mapping_service_name = readOptional<std::string>(
     runner, "mapping_service_name", config.mapping_service_name);
   config.waiting_enable_service_name = readOptional<std::string>(
@@ -115,6 +122,8 @@ RunnerConfig loadRunnerConfig(const std::string & yaml_path)
   config.use_initial_origin = readRequired<bool>(runner, "use_initial_origin");
   config.allow_origin_updates_after_first_click =
     readOptional<bool>(runner, "allow_origin_updates_after_first_click", false);
+  config.target_update_threshold_m = readOptional<double>(
+    runner, "target_update_threshold_m", config.target_update_threshold_m);
   config.initial_origin_x_m = readRequired<double>(runner, "initial_origin_x_m");
   config.initial_origin_y_m = readRequired<double>(runner, "initial_origin_y_m");
   config.ground_z_min_m = readRequired<double>(runner, "ground_z_min_m");
@@ -346,6 +355,8 @@ public:
     target_point_qos.transient_local();
     target_point_pub_ = this->create_publisher<geometry_msgs::msg::PointStamped>(
       runner_config_.target_point_topic, target_point_qos);
+    grasp_targets_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>(
+      runner_config_.grasp_targets_topic, target_point_qos);
     mapping_service_ = this->create_service<MappingControl>(
       runner_config_.mapping_service_name,
       std::bind(
@@ -383,6 +394,24 @@ private:
     target_msg.point.y = y_m;
     target_msg.point.z = 0.0;
     target_point_pub_->publish(target_msg);
+    last_published_target_ = std::make_pair(x_m, y_m);
+  }
+
+  void publishGraspTargets(const std::vector<std::pair<double, double>> & objects)
+  {
+    geometry_msgs::msg::PoseArray msg;
+    msg.header.stamp = this->now();
+    msg.header.frame_id = runner_config_.map_frame_id;
+    msg.poses.reserve(objects.size());
+    for (const auto & [x_m, y_m] : objects) {
+      geometry_msgs::msg::Pose pose;
+      pose.position.x = x_m;
+      pose.position.y = y_m;
+      pose.position.z = 0.0;
+      pose.orientation.w = 1.0;
+      msg.poses.push_back(pose);
+    }
+    grasp_targets_pub_->publish(msg);
   }
 
   void resetOriginFromTarget(double x_m, double y_m)
@@ -412,9 +441,9 @@ private:
       return;
     }
 
-    if (request->mode != 0) {
+    if (request->mode != 0 && request->mode != 1) {
       RCLCPP_WARN(
-        this->get_logger(), "Unsupported mapping mode: %d. Only mode 0 is implemented.",
+        this->get_logger(), "Unsupported mapping mode: %d. Only mode 0 and 1 are implemented.",
         request->mode);
       response->success = false;
       return;
@@ -438,14 +467,72 @@ private:
       return;
     }
 
+    if (request->mode == 1) {
+      if (!mapping_enabled_) {
+        RCLCPP_WARN(
+          this->get_logger(),
+          "Mode 1 requires active mapping (call mode 0 first).");
+        response->success = false;
+        return;
+      }
+
+      const std::size_t pair_count = (request->target.size() - 2U) / 2U;
+      if (pair_count == 0U) {
+        RCLCPP_WARN(
+          this->get_logger(),
+          "Mode 1 requires at least one grasp object pair (target[2..3]), but only %zu values given.",
+          request->target.size());
+        response->success = false;
+        return;
+      }
+
+      std::vector<std::pair<double, double>> grasp_objects;
+      grasp_objects.reserve(pair_count);
+      for (std::size_t i = 0; i < pair_count; ++i) {
+        const double ox = static_cast<double>(request->target[2U + 2U * i]);
+        const double oy = static_cast<double>(request->target[3U + 2U * i]);
+        if (!std::isfinite(ox) || !std::isfinite(oy)) {
+          RCLCPP_WARN(
+            this->get_logger(),
+            "Mode 1 grasp object %zu has non-finite coordinates.", i);
+          response->success = false;
+          return;
+        }
+        grasp_objects.emplace_back(ox, oy);
+      }
+
+      bool target_updated = false;
+      if (!last_published_target_.has_value()) {
+        publishTargetPoint(target_x_m, target_y_m);
+        target_updated = true;
+      } else {
+        const double dx = target_x_m - last_published_target_->first;
+        const double dy = target_y_m - last_published_target_->second;
+        if (std::hypot(dx, dy) > runner_config_.target_update_threshold_m) {
+          publishTargetPoint(target_x_m, target_y_m);
+          target_updated = true;
+        }
+      }
+
+      publishGraspTargets(grasp_objects);
+
+      RCLCPP_INFO(
+        this->get_logger(),
+        "Mode 1: grasp_objects=%zu target=(%.3f, %.3f) target_updated=%s (map preserved)",
+        grasp_objects.size(), target_x_m, target_y_m, target_updated ? "yes" : "no");
+      response->success = true;
+      return;
+    }
+
     resetOriginFromTarget(target_x_m, target_y_m);
     publishTargetPoint(target_x_m, target_y_m);
+    publishGraspTargets({});
     mapping_enabled_ = true;
 
     RCLCPP_INFO(
       this->get_logger(),
-      "Mapping started: mode=%d target=(%.3f, %.3f)%s",
-      request->mode, target_x_m, target_y_m,
+      "Mapping started: mode=0 target=(%.3f, %.3f)%s",
+      target_x_m, target_y_m,
       request->target.size() > 2U ? " (additional target values ignored)" : "");
     callWaitingEnable(true);
     response->success = true;
@@ -594,6 +681,7 @@ private:
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   bool origin_ready_{false};
   bool mapping_enabled_{false};
+  std::optional<std::pair<double, double>> last_published_target_;
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr obstacle_pub_;
@@ -603,6 +691,7 @@ private:
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr feasible_pub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr transition_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr target_point_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr grasp_targets_pub_;
   rclcpp::Service<MappingControl>::SharedPtr mapping_service_;
   rclcpp::Client<SetEnable>::SharedPtr waiting_enable_client_;
 };

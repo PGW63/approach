@@ -1,6 +1,7 @@
 runner:
   input_cloud_topic: "/approach/aligned_cloud" #"/approach/accumulated_cloud" #
   target_point_topic: "/approach/target_point"
+  grasp_targets_topic: "/approach/grasp_targets"
   mapping_service_name: "/approach/mapping"
   map_frame_id: "map"
   obstacle_map_topic: "/approach/obstacle_map"
@@ -12,6 +13,7 @@ runner:
   robot_filter_frame_id: "base"
   use_initial_origin: false
   allow_origin_updates_after_first_click: false
+  target_update_threshold_m: 2.0
   initial_origin_x_m: 0.0
   initial_origin_y_m: 0.0
   ground_z_min_m: -0.40
