@@ -56,16 +56,64 @@ T readOptional(const YAML::Node & node, const char * key, const T & default_valu
     return node && node[key] ? node[key].as<T>() : default_value;
 }
 
+YAML::Node loadIcpYamlRoot(const std::string & yaml_path)
+{
+    try {
+        return YAML::LoadFile(yaml_path);
+    } catch (const std::exception &) {
+        return YAML::Node{};
+    }
+}
+
+RegistrationConfig loadRegistrationConfigFromYaml(
+    const YAML::Node & root,
+    const RegistrationConfig & defaults)
+{
+    RegistrationConfig config = defaults;
+    if (!root) {
+        return config;
+    }
+
+    const YAML::Node icp_node = root["icp"] ? root["icp"] : root;
+    const YAML::Node reg = icp_node["registration"];
+    if (!reg) {
+        return config;
+    }
+
+    config.backend = readOptional<std::string>(reg, "backend", config.backend);
+    config.num_threads = readOptional<int>(reg, "num_threads", config.num_threads);
+    config.resolution = readOptional<double>(reg, "resolution", config.resolution);
+    config.max_correspondence_distance = readOptional<double>(
+        reg, "max_correspondence_distance", config.max_correspondence_distance);
+    config.transformation_epsilon = readOptional<double>(
+        reg, "transformation_epsilon", config.transformation_epsilon);
+    config.euclidean_fitness_epsilon = readOptional<double>(
+        reg, "euclidean_fitness_epsilon", config.euclidean_fitness_epsilon);
+    config.max_iterations = readOptional<int>(reg, "max_iterations", config.max_iterations);
+    config.max_submap_frames =
+        readOptional<int>(reg, "max_submap_frames", config.max_submap_frames);
+    config.max_angular_velocity_for_update = readOptional<double>(
+        reg, "max_angular_velocity_for_update", config.max_angular_velocity_for_update);
+    config.max_planar_translation_correction = readOptional<double>(
+        reg, "max_planar_translation_correction", config.max_planar_translation_correction);
+    config.max_yaw_correction =
+        readOptional<double>(reg, "max_yaw_correction", config.max_yaw_correction);
+    config.max_roll_correction =
+        readOptional<double>(reg, "max_roll_correction", config.max_roll_correction);
+    config.max_pitch_correction =
+        readOptional<double>(reg, "max_pitch_correction", config.max_pitch_correction);
+    config.max_z_correction =
+        readOptional<double>(reg, "max_z_correction", config.max_z_correction);
+
+    return config;
+}
+
 approach_preprocess::PreprocessConfig loadPreprocessConfigFromYaml(
-    const std::string & yaml_path,
+    const YAML::Node & root,
     const approach_preprocess::PreprocessConfig & defaults)
 {
     approach_preprocess::PreprocessConfig config = defaults;
-
-    YAML::Node root;
-    try {
-        root = YAML::LoadFile(yaml_path);
-    } catch (const std::exception &) {
+    if (!root) {
         return config;
     }
 
@@ -116,7 +164,17 @@ NodeICPCuda::NodeICPCuda() :
     const auto runner_share =
         ament_index_cpp::get_package_share_directory("approach_map_runner");
     const std::string icp_config_path = runner_share + "/config/icp_config.yaml";
-    preprocess_config_ = loadPreprocessConfigFromYaml(icp_config_path, preprocess_config_);
+    const YAML::Node icp_yaml_root = loadIcpYamlRoot(icp_config_path);
+    registration_config_ =
+        loadRegistrationConfigFromYaml(icp_yaml_root, registration_config_);
+    preprocess_config_ =
+        loadPreprocessConfigFromYaml(icp_yaml_root, preprocess_config_);
+    RCLCPP_INFO(
+        this->get_logger(),
+        "Loaded ICP registration config: backend=%s num_threads=%d max_iterations=%d",
+        registration_config_.backend.c_str(),
+        registration_config_.num_threads,
+        registration_config_.max_iterations);
     RCLCPP_INFO(
         this->get_logger(),
         "Loaded ICP preprocess config: voxel_leaf_size=%.3f registration_voxel_leaf_size=%.3f",
