@@ -1,4 +1,20 @@
 icp:
+  registration:
+    backend: "fast_gicp"
+    num_threads: 4
+    resolution: 0.25                       # VGICP voxel size (used only by fast_vgicp / cuda backends)
+    max_correspondence_distance: 1.0
+    transformation_epsilon: 1.0e-4
+    euclidean_fitness_epsilon: 1.0e-3
+    max_iterations: 100
+    max_submap_frames: 8
+    max_angular_velocity_for_update: 0.35  # rad/s; skip frame if rotating faster
+    max_planar_translation_correction: 1.0
+    max_yaw_correction: 0.7
+    max_roll_correction: 0.15
+    max_pitch_correction: 0.15
+    max_z_correction: 0.25
+
   preprocess:
     remove_nan_enable: true
     downsample_enable: true
