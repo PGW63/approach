@@ -190,6 +190,8 @@ void NodeICPCuda::create_publisher_topic()
         topic_config_.aligned_cloud_topic, rclcpp::SensorDataQoS());
     accumulation_cloud_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
         topic_config_.accumulation_cloud_topic, rclcpp::SensorDataQoS());
+    submap_cloud_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
+        topic_config_.submap_cloud_topic, rclcpp::SensorDataQoS());
 }
 
 void NodeICPCuda::create_subscription_topic()
@@ -477,6 +479,7 @@ void NodeICPCuda::process_callback()
 
         publish_cloud(accumulated_cloud, target_frame_, publish_topic_name_.accumulation_cloud_topic);
         publish_cloud(first_cloud_in_target, target_frame_, publish_topic_name_.aligned_cloud_topic);
+        publish_cloud(build_registration_submap(), target_frame_, publish_topic_name_.submap_cloud_topic);
 
         latest_cloud->clear();
         has_latest_cloud = false;
@@ -549,6 +552,7 @@ void NodeICPCuda::process_callback()
     has_last_odom_from_base_ = true;
     has_last_registered_stamp_ = true;
     publish_cloud(accumulated_cloud, target_frame_, publish_topic_name_.accumulation_cloud_topic);
+    publish_cloud(build_registration_submap(), target_frame_, publish_topic_name_.submap_cloud_topic);
 
     latest_cloud->clear();
     has_latest_cloud = false;
@@ -587,6 +591,8 @@ void NodeICPCuda::publish_cloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud
         aligned_cloud_pub_->publish(output_msg);
     } else if (topic_name == publish_topic_name_.accumulation_cloud_topic) {
         accumulation_cloud_pub_->publish(output_msg);
+    } else if (topic_name == publish_topic_name_.submap_cloud_topic) {
+        submap_cloud_pub_->publish(output_msg);
     } else {
         RCLCPP_ERROR(this->get_logger(), "Unknown topic name: %s", topic_name.c_str());
     }

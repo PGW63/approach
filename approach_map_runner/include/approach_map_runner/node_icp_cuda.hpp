@@ -22,6 +22,7 @@
 struct PublishTopicName{
     std::string aligned_cloud_topic = "/approach/aligned_cloud";
     std::string accumulation_cloud_topic = "/approach/accumulated_cloud";
+    std::string submap_cloud_topic = "/approach/submap_cloud";
 };
 
 class NodeICPCuda : public rclcpp::Node
@@ -59,6 +60,7 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr aligned_cloud_pub_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr accumulation_cloud_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr submap_cloud_pub_;
 
     rclcpp::Service<inha_interfaces::srv::Accumulation>::SharedPtr accumulation_service_;
 

@@ -28,6 +28,7 @@ struct TopicConfig
     std::string input_cloud_topic = "/livox/lidar";
     std::string aligned_cloud_topic = "/approach/aligned_cloud";
     std::string accumulation_cloud_topic = "/approach/accumulated_cloud";
+    std::string submap_cloud_topic = "/approach/submap_cloud";
 };
 
 struct ServiceConfig
