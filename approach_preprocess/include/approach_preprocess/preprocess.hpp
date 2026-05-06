@@ -18,6 +18,7 @@ struct PreprocessConfig
   bool ground_removal_enable{true};
   bool keep_ground_for_mapping{true};
   double voxel_leaf_size{0.07};
+  double registration_voxel_leaf_size{0.10};
   double passthrough_robot_x_min{-0.3};
   double passthrough_robot_x_max{0.2};
   double passthrough_robot_y_min{-0.3};
@@ -30,6 +31,10 @@ struct PreprocessConfig
 pcl::PointCloud<pcl::PointXYZ>::Ptr downsample(
   const pcl::PointCloud<pcl::PointXYZ>::Ptr & cloud,
   const PreprocessConfig & config);
+
+pcl::PointCloud<pcl::PointXYZ>::Ptr downsample(
+  const pcl::PointCloud<pcl::PointXYZ>::Ptr & cloud,
+  double voxel_leaf_size);
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr removeNaN(
   const pcl::PointCloud<pcl::PointXYZ>::Ptr & cloud,
