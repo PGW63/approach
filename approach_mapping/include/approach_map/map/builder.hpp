@@ -33,6 +33,18 @@ public:
   void setOrigin(const Origin & origin);
 
   /**
+   * @brief Change the grid origin while preserving accumulated map evidence.
+   *
+   * Existing persistent map evidence is reprojected from the old grid to the new
+   * grid using each old cell center's world coordinate. Cells outside the new grid
+   * are discarded. Derived layers such as clearance and heading feasibility are
+   * recomputed after the shift.
+   *
+   * @param origin New grid origin in meters.
+   */
+  void shiftOriginPreserveEvidence(const Origin & origin);
+
+  /**
    * @brief Reset all accumulated evidence and derived map layers.
    */
   void reset();
