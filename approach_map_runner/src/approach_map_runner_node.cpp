@@ -420,6 +420,21 @@ private:
       runner_config_.map_frame_id.c_str(), origin.x_m, origin.y_m);
   }
 
+  void shiftOriginFromTargetPreserveMap(double x_m, double y_m)
+  {
+    const approach_map::Origin origin{
+      x_m - 0.5 * map_config_.width_m,
+      y_m - 0.5 * map_config_.height_m};
+
+    builder_->shiftOriginPreserveEvidence(origin);
+    origin_ready_ = true;
+
+    RCLCPP_INFO(
+      this->get_logger(),
+      "Map origin shifted with preserved evidence in %s: origin=(%.3f, %.3f)",
+      runner_config_.map_frame_id.c_str(), origin.x_m, origin.y_m);
+  }
+
   void mappingServiceCallback(
     const std::shared_ptr<MappingControl::Request> request,
     std::shared_ptr<MappingControl::Response> response)
@@ -432,9 +447,10 @@ private:
       return;
     }
 
-    if (request->mode != 0 && request->mode != 1) {
+    if (request->mode != 0 && request->mode != 1 && request->mode != 2) {
       RCLCPP_WARN(
-        this->get_logger(), "Unsupported mapping mode: %d. Only mode 0 and 1 are implemented.",
+        this->get_logger(),
+        "Unsupported mapping mode: %d. Only mode 0, 1 and 2 are implemented.",
         request->mode);
       response->success = false;
       return;
@@ -455,6 +471,28 @@ private:
       RCLCPP_WARN(
         this->get_logger(), "Mapping start request contains non-finite target coordinates.");
       response->success = false;
+      return;
+    }
+
+    if (request->mode == 2) {
+      if (!mapping_enabled_) {
+        RCLCPP_WARN(
+          this->get_logger(),
+          "Mode 2 requires active mapping. Call mode 0 first.");
+        response->success = false;
+        return;
+      }
+
+      shiftOriginFromTargetPreserveMap(target_x_m, target_y_m);
+      publishTargetPoint(target_x_m, target_y_m);
+      publishGraspTargets({});
+
+      RCLCPP_INFO(
+        this->get_logger(),
+        "Mode 2: shifted map origin around target=(%.3f, %.3f) while preserving map evidence.",
+        target_x_m, target_y_m);
+
+      response->success = true;
       return;
     }
 

@@ -34,6 +34,83 @@ void Builder::setOrigin(const Origin & origin)
   buildFootprintStencils();
 }
 
+void Builder::shiftOriginPreserveEvidence(const Origin & origin)
+{
+  const GridMeta old_meta = meta_;
+
+  const auto old_evidence_scores = evidence_scores_;
+  const auto old_state_transition_counts = state_transition_counts_;
+  const auto old_observed = observed_;
+  const auto old_cell_states = cell_states_;
+
+  meta_ = makeGridMeta(config_, origin);
+
+  const std::size_t new_cell_count = approach_map::cellCount(meta_);
+
+  std::vector<int> new_evidence_scores(new_cell_count, 0);
+  std::vector<uint32_t> new_state_transition_counts(new_cell_count, 0U);
+  std::vector<uint8_t> new_observed(new_cell_count, 0U);
+  std::vector<CellState> new_cell_states(new_cell_count, CellState::Unknown);
+
+  for (std::size_t old_index = 0; old_index < old_observed.size(); ++old_index) {
+    if (old_observed[old_index] == 0U) {
+      continue;
+    }
+
+    const std::size_t old_x = old_index % old_meta.width_cells;
+    const std::size_t old_y = old_index / old_meta.width_cells;
+
+    const double world_x =
+      old_meta.origin_x_m +
+      (static_cast<double>(old_x) + 0.5) * old_meta.resolution_m;
+
+    const double world_y =
+      old_meta.origin_y_m +
+      (static_cast<double>(old_y) + 0.5) * old_meta.resolution_m;
+
+    const auto maybe_new_index = worldToIndex(meta_, world_x, world_y);
+    if (!maybe_new_index.has_value()) {
+      continue;
+    }
+
+    const std::size_t new_index = maybe_new_index.value();
+
+    if (std::abs(old_evidence_scores[old_index]) >
+      std::abs(new_evidence_scores[new_index]))
+    {
+      new_evidence_scores[new_index] = old_evidence_scores[old_index];
+      new_state_transition_counts[new_index] = old_state_transition_counts[old_index];
+      new_observed[new_index] = old_observed[old_index];
+      new_cell_states[new_index] = old_cell_states[old_index];
+    } else if (new_observed[new_index] == 0U) {
+      new_evidence_scores[new_index] = old_evidence_scores[old_index];
+      new_state_transition_counts[new_index] = old_state_transition_counts[old_index];
+      new_observed[new_index] = old_observed[old_index];
+      new_cell_states[new_index] = old_cell_states[old_index];
+    }
+  }
+
+  obstacle_hits_per_update_.assign(new_cell_count, 0);
+  ground_hits_per_update_.assign(new_cell_count, 0);
+
+  evidence_scores_ = std::move(new_evidence_scores);
+  state_transition_counts_ = std::move(new_state_transition_counts);
+  observed_ = std::move(new_observed);
+  cell_states_ = std::move(new_cell_states);
+
+  clearance_m_.assign(new_cell_count, 0.0F);
+
+  heading_feasible_.assign(std::max<std::size_t>(1, config_.heading_bin_count), {});
+  for (auto & heading_mask : heading_feasible_) {
+    heading_mask.assign(new_cell_count, 0U);
+  }
+
+  buildFootprintStencils();
+  classifyCells();
+  computeClearanceMeters();
+  computeHeadingFeasibleMasks();
+}
+
 void Builder::reset()
 {
   std::fill(obstacle_hits_per_update_.begin(), obstacle_hits_per_update_.end(), 0);
