@@ -74,12 +74,12 @@ CostRunnerConfig loadCostRunnerConfig(rclcpp::Node & node)
     node.declare_parameter("debug_save_enable", config.debug_save_enable);
   config.debug_output_dir =
     node.declare_parameter("debug_output_dir", config.debug_output_dir);
-  config.debug_save_every_n_frames = std::max(
-    1, node.declare_parameter(
-      "debug_save_every_n_frames", config.debug_save_every_n_frames));
-  config.debug_max_frames_per_session = std::max(
-    0, node.declare_parameter(
-      "debug_max_frames_per_session", config.debug_max_frames_per_session));
+  config.debug_save_every_n_frames = static_cast<int>(std::max<std::int64_t>(
+      1, node.declare_parameter(
+        "debug_save_every_n_frames", config.debug_save_every_n_frames)));
+  config.debug_max_frames_per_session = static_cast<int>(std::max<std::int64_t>(
+      0, node.declare_parameter(
+        "debug_max_frames_per_session", config.debug_max_frames_per_session)));
   return config;
 }
 

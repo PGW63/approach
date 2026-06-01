@@ -2,6 +2,7 @@
 #include <chrono>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 
@@ -122,10 +123,10 @@ approach_preprocess::PreprocessConfig loadPreprocessConfig(
     config.radius_search_m = std::max(
         1.0e-6,
         node.declare_parameter("preprocess.radius_search_m", config.radius_search_m));
-    config.min_neighbors_in_radius = std::max(
+    config.min_neighbors_in_radius = static_cast<int>(std::max<std::int64_t>(
         1,
         node.declare_parameter(
-            "preprocess.min_neighbors_in_radius", config.min_neighbors_in_radius));
+            "preprocess.min_neighbors_in_radius", config.min_neighbors_in_radius)));
 
     return config;
 }
