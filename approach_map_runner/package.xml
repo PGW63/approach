@@ -9,7 +9,6 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <depend>ament_index_cpp</depend>
   <depend>approach_icp</depend>
   <depend>approach_mapping</depend>
   <depend>approach_cost</depend>
@@ -19,6 +18,7 @@
   <depend>fast_gicp</depend>
   <depend>geometry_msgs</depend>
   <depend>inha_interfaces</depend>
+  <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <depend>nav_msgs</depend>
@@ -31,8 +31,6 @@
   <depend>tf2_ros</depend>
   <depend>tf2_sensor_msgs</depend>
   <depend>visualization_msgs</depend>
-  <depend>yaml-cpp</depend>
-
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 

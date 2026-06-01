@@ -1,13 +1,18 @@
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <functional>
+#include <iomanip>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <builtin_interfaces/msg/time.hpp>
 #include <geometry_msgs/msg/point_stamped.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
@@ -21,8 +26,6 @@
 #include <tf2_ros/create_timer_ros.h>
 #include <tf2_ros/transform_listener.h>
 #include <geometry_msgs/msg/pose_stamped.hpp>
-#include <yaml-cpp/yaml.h>
-
 #include "approach_cost/cost.hpp"
 #include "inha_interfaces/msg/grasp_approach_status.hpp"
 
@@ -41,41 +44,42 @@ struct CostRunnerConfig
   std::string arrow_topic{"/approach/best_cost_arrow"};
   double transform_timeout_sec{0.1};
   double grasp_radius_m{0.9};
+  bool debug_save_enable{false};
+  std::string debug_output_dir{"/tmp/approach_cost_debug"};
+  int debug_save_every_n_frames{1};
+  int debug_max_frames_per_session{600};
 };
 
-template<typename T>
-T readRequired(const YAML::Node & node, const char * key)
+CostRunnerConfig loadCostRunnerConfig(rclcpp::Node & node)
 {
-  if (!node[key]) {
-    throw std::runtime_error(std::string("Missing required cost runner config key: ") + key);
-  }
-  return node[key].as<T>();
-}
-
-template<typename T>
-T readOptional(const YAML::Node & node, const char * key, const T & default_value)
-{
-  return node[key] ? node[key].as<T>() : default_value;
-}
-
-CostRunnerConfig loadCostRunnerConfig(const std::string & yaml_path)
-{
-  const YAML::Node root = YAML::LoadFile(yaml_path);
-  const YAML::Node runner = root["cost_runner"] ? root["cost_runner"] : root;
-
   CostRunnerConfig config;
-  config.feasible_map_topic = readRequired<std::string>(runner, "feasible_map_topic");
-  config.transition_map_topic = readRequired<std::string>(runner, "transition_map_topic");
-  config.target_point_topic = readRequired<std::string>(runner, "target_point_topic");
-  config.robot_frame_id = readRequired<std::string>(runner, "robot_frame_id");
-  config.output_topic = readRequired<std::string>(runner, "output_topic");
-  config.arrow_topic = readOptional<std::string>(runner, "arrow_topic", config.arrow_topic);
-  config.grasp_targets_topic = readOptional<std::string>(
-    runner, "grasp_targets_topic", config.grasp_targets_topic);
-  config.grasp_status_topic = readOptional<std::string>(
-    runner, "grasp_status_topic", config.grasp_status_topic);
-  config.transform_timeout_sec = readRequired<double>(runner, "transform_timeout_sec");
-  config.grasp_radius_m = readOptional<double>(runner, "grasp_radius_m", config.grasp_radius_m);
+  config.feasible_map_topic =
+    node.declare_parameter("feasible_map_topic", config.feasible_map_topic);
+  config.transition_map_topic =
+    node.declare_parameter("transition_map_topic", config.transition_map_topic);
+  config.target_point_topic =
+    node.declare_parameter("target_point_topic", config.target_point_topic);
+  config.grasp_targets_topic =
+    node.declare_parameter("grasp_targets_topic", config.grasp_targets_topic);
+  config.grasp_status_topic =
+    node.declare_parameter("grasp_status_topic", config.grasp_status_topic);
+  config.robot_frame_id =
+    node.declare_parameter("robot_frame_id", config.robot_frame_id);
+  config.output_topic = node.declare_parameter("output_topic", config.output_topic);
+  config.arrow_topic = node.declare_parameter("arrow_topic", config.arrow_topic);
+  config.transform_timeout_sec =
+    node.declare_parameter("transform_timeout_sec", config.transform_timeout_sec);
+  config.grasp_radius_m = node.declare_parameter("grasp_radius_m", config.grasp_radius_m);
+  config.debug_save_enable =
+    node.declare_parameter("debug_save_enable", config.debug_save_enable);
+  config.debug_output_dir =
+    node.declare_parameter("debug_output_dir", config.debug_output_dir);
+  config.debug_save_every_n_frames = std::max(
+    1, node.declare_parameter(
+      "debug_save_every_n_frames", config.debug_save_every_n_frames));
+  config.debug_max_frames_per_session = std::max(
+    0, node.declare_parameter(
+      "debug_max_frames_per_session", config.debug_max_frames_per_session));
   return config;
 }
 
@@ -185,6 +189,61 @@ std::optional<std::size_t> findLowestCostCellIndex(const approach_map::GridDataF
   return best_index;
 }
 
+std::size_t countFeasibleCells(const nav_msgs::msg::OccupancyGrid & grid)
+{
+  return static_cast<std::size_t>(std::count_if(
+    grid.data.begin(), grid.data.end(), [](int8_t value) {return value > 0;}));
+}
+
+std::size_t countValidCostCells(const nav_msgs::msg::OccupancyGrid & grid)
+{
+  return static_cast<std::size_t>(std::count_if(
+    grid.data.begin(), grid.data.end(), [](int8_t value) {return value >= 0;}));
+}
+
+double stampSeconds(const builtin_interfaces::msg::Time & stamp)
+{
+  return static_cast<double>(stamp.sec) + 1.0e-9 * static_cast<double>(stamp.nanosec);
+}
+
+std::string zeroPaddedNumber(uint64_t value, int width)
+{
+  std::ostringstream stream;
+  stream << std::setw(width) << std::setfill('0') << value;
+  return stream.str();
+}
+
+bool writeGridPgm(
+  const std::filesystem::path & path,
+  const nav_msgs::msg::OccupancyGrid & grid)
+{
+  std::ofstream stream(path, std::ios::binary);
+  if (!stream.is_open()) {
+    return false;
+  }
+
+  const std::size_t expected_size =
+    static_cast<std::size_t>(grid.info.width) * static_cast<std::size_t>(grid.info.height);
+  if (grid.data.size() != expected_size) {
+    return false;
+  }
+
+  stream << "P5\n" << grid.info.width << " " << grid.info.height << "\n255\n";
+  for (std::size_t y = grid.info.height; y > 0U; --y) {
+    const std::size_t row = y - 1U;
+    for (std::size_t x = 0; x < grid.info.width; ++x) {
+      const std::size_t index = row * grid.info.width + x;
+      const int value = static_cast<int>(grid.data[index]);
+      const unsigned char pixel = value < 0 ?
+        static_cast<unsigned char>(127) :
+        static_cast<unsigned char>(std::clamp(value, 0, 100) * 255 / 100);
+      stream.write(reinterpret_cast<const char *>(&pixel), 1);
+    }
+  }
+
+  return stream.good();
+}
+
 struct GraspReachResult
 {
   std::vector<uint8_t> reach_mask;
@@ -269,14 +328,14 @@ public:
   ApproachCostRunnerNode()
   : Node("approach_cost_runner_node")
   {
-    const auto cost_share = ament_index_cpp::get_package_share_directory("approach_cost");
-    const auto runner_share = ament_index_cpp::get_package_share_directory("approach_map_runner");
-
-    const std::string cost_config_path = cost_share + "/config/cost_config.yaml";
-    const std::string runner_config_path = runner_share + "/config/cost_runner_config.yaml";
+    const std::string cost_config_path =
+      this->declare_parameter<std::string>("cost_config_path", "");
+    if (cost_config_path.empty()) {
+      throw std::runtime_error("cost_config_path parameter is required");
+    }
 
     cost_config_ = approach_cost::loadFinalCostConfigFromYaml(cost_config_path);
-    runner_config_ = loadCostRunnerConfig(runner_config_path);
+    runner_config_ = loadCostRunnerConfig(*this);
 
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     auto timer_interface = std::make_shared<tf2_ros::CreateTimerROS>(
@@ -314,7 +373,15 @@ public:
       std::bind(&ApproachCostRunnerNode::transitionMapCallback, this, std::placeholders::_1));
 
     RCLCPP_INFO(this->get_logger(), "Loaded cost config: %s", cost_config_path.c_str());
-    RCLCPP_INFO(this->get_logger(), "Loaded cost runner config: %s", runner_config_path.c_str());
+    RCLCPP_INFO(this->get_logger(), "Loaded cost runner configuration from ROS parameters.");
+    if (runner_config_.debug_save_enable) {
+      RCLCPP_INFO(
+        this->get_logger(),
+        "Debug snapshots enabled: output=%s every_n_frames=%d max_frames_per_session=%d",
+        runner_config_.debug_output_dir.c_str(),
+        runner_config_.debug_save_every_n_frames,
+        runner_config_.debug_max_frames_per_session);
+    }
   }
 
 private:
@@ -383,9 +450,153 @@ private:
     return true;
   }
 
+  void startDebugSession(const geometry_msgs::msg::PointStamped & target)
+  {
+    if (!runner_config_.debug_save_enable) {
+      return;
+    }
+
+    debug_csv_.close();
+    debug_session_ready_ = false;
+    debug_frame_index_ = 0U;
+    debug_saved_snapshot_count_ = 0U;
+    ++debug_session_index_;
+
+    const auto epoch_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+    const std::string directory_name =
+      "session_" + zeroPaddedNumber(debug_session_index_, 4) + "_" +
+      std::to_string(epoch_ms);
+    debug_session_dir_ = std::filesystem::path(runner_config_.debug_output_dir) / directory_name;
+
+    try {
+      std::filesystem::create_directories(debug_session_dir_);
+
+      debug_csv_.open(debug_session_dir_ / "frames.csv", std::ios::out);
+      if (!debug_csv_.is_open()) {
+        throw std::runtime_error("failed to open frames.csv");
+      }
+
+      debug_csv_ <<
+        "frame,received_time_sec,map_stamp_sec,map_lag_ms,processing_ms,snapshot_write_ms,"
+        "feasible_cells,valid_cost_cells,best_cost,best_x_m,best_y_m,"
+        "target_x_m,target_y_m,target_distance_m,robot_x_m,robot_y_m,"
+        "robot_distance_m,snapshot_saved\n";
+      debug_csv_.flush();
+
+      std::ofstream readme(debug_session_dir_ / "README.txt", std::ios::out);
+      readme <<
+        "Each frame_NNNNNN_feasible.pgm and frame_NNNNNN_final_cost.pgm pair "
+        "belongs to the matching frames.csv row.\n"
+        "PGM encoding: unknown=127, known grid value 0..100 mapped to 0..255.\n"
+        "Lower final-cost brightness is preferred. Feasible cells are white.\n"
+        "target_frame=" << target.header.frame_id << "\n"
+        "target_x_m=" << target.point.x << "\n"
+        "target_y_m=" << target.point.y << "\n";
+
+      debug_session_ready_ = true;
+      RCLCPP_INFO(
+        this->get_logger(), "Started debug snapshot session: %s",
+        debug_session_dir_.string().c_str());
+    } catch (const std::exception & ex) {
+      RCLCPP_WARN(
+        this->get_logger(), "Failed to start debug snapshot session in %s: %s",
+        debug_session_dir_.string().c_str(), ex.what());
+    }
+  }
+
+  void saveDebugFrame(
+    const nav_msgs::msg::OccupancyGrid & feasible_grid,
+    const nav_msgs::msg::OccupancyGrid & final_cost_grid,
+    const approach_map::XYPoint & robot_point,
+    const approach_map::XYPoint & target_point,
+    const std::optional<std::size_t> & best_index,
+    const std::chrono::steady_clock::time_point & callback_started,
+    double callback_received_time_sec)
+  {
+    if (!runner_config_.debug_save_enable || !debug_session_ready_) {
+      return;
+    }
+
+    ++debug_frame_index_;
+    const bool snapshot_requested =
+      debug_saved_snapshot_count_ <
+      static_cast<uint64_t>(runner_config_.debug_max_frames_per_session) &&
+      (debug_frame_index_ - 1U) %
+      static_cast<uint64_t>(runner_config_.debug_save_every_n_frames) == 0U;
+
+    const double processing_ms = std::chrono::duration<double, std::milli>(
+      std::chrono::steady_clock::now() - callback_started).count();
+
+    bool snapshot_saved = false;
+    double snapshot_write_ms = 0.0;
+    if (snapshot_requested) {
+      const auto snapshot_started = std::chrono::steady_clock::now();
+      const std::string prefix = "frame_" + zeroPaddedNumber(debug_frame_index_, 6);
+      const bool feasible_saved = writeGridPgm(
+        debug_session_dir_ / (prefix + "_feasible.pgm"), feasible_grid);
+      const bool final_cost_saved = writeGridPgm(
+        debug_session_dir_ / (prefix + "_final_cost.pgm"), final_cost_grid);
+      snapshot_write_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - snapshot_started).count();
+      snapshot_saved = feasible_saved && final_cost_saved;
+      if (snapshot_saved) {
+        ++debug_saved_snapshot_count_;
+      } else {
+        RCLCPP_WARN_THROTTLE(
+          this->get_logger(), *this->get_clock(), 3000,
+          "Failed to save one or more debug snapshot files in %s.",
+          debug_session_dir_.string().c_str());
+      }
+    }
+
+    const double map_stamp_sec = stampSeconds(feasible_grid.header.stamp);
+    const double map_lag_ms = 1000.0 * (callback_received_time_sec - map_stamp_sec);
+
+    double best_cost = -1.0;
+    double best_x_m = 0.0;
+    double best_y_m = 0.0;
+    double target_distance_m = -1.0;
+    double robot_distance_m = -1.0;
+    if (best_index.has_value()) {
+      const auto best_point = cellCenter(metaFromOccupancyGrid(final_cost_grid), best_index.value());
+      best_cost = static_cast<double>(final_cost_grid.data[best_index.value()]) / 100.0;
+      best_x_m = best_point.x_m;
+      best_y_m = best_point.y_m;
+      target_distance_m = std::hypot(
+        best_point.x_m - target_point.x_m,
+        best_point.y_m - target_point.y_m);
+      robot_distance_m = std::hypot(
+        best_point.x_m - robot_point.x_m,
+        best_point.y_m - robot_point.y_m);
+    }
+
+    debug_csv_ << std::fixed << std::setprecision(6) <<
+      debug_frame_index_ << "," <<
+      callback_received_time_sec << "," <<
+      map_stamp_sec << "," <<
+      map_lag_ms << "," <<
+      processing_ms << "," <<
+      snapshot_write_ms << "," <<
+      countFeasibleCells(feasible_grid) << "," <<
+      countValidCostCells(final_cost_grid) << "," <<
+      best_cost << "," <<
+      best_x_m << "," <<
+      best_y_m << "," <<
+      target_point.x_m << "," <<
+      target_point.y_m << "," <<
+      target_distance_m << "," <<
+      robot_point.x_m << "," <<
+      robot_point.y_m << "," <<
+      robot_distance_m << "," <<
+      (snapshot_saved ? 1 : 0) << "\n";
+    debug_csv_.flush();
+  }
+
   void targetPointCallback(const geometry_msgs::msg::PointStamped::SharedPtr msg)
   {
     latest_target_point_ = *msg;
+    startDebugSession(*msg);
     RCLCPP_INFO(
       this->get_logger(), "Updated cost target point from topic %s",
       runner_config_.target_point_topic.c_str());
@@ -441,6 +652,9 @@ private:
 
   void feasibleMapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
   {
+    const auto callback_started = std::chrono::steady_clock::now();
+    const double callback_received_time_sec = this->now().seconds();
+
     if (!latest_target_point_.has_value()) {
       RCLCPP_WARN_THROTTLE(
         this->get_logger(), *this->get_clock(), 3000,
@@ -502,9 +716,13 @@ private:
     const auto common_layers = approach_cost::computeCostCommon(input, cost_config_.common);
     const auto final_cost_layer = approach_cost::computeFinalCost(common_layers, cost_config_);
 
-    final_cost_pub_->publish(toCostGrid(final_cost_layer, msg->header));
+    const auto final_cost_grid = toCostGrid(final_cost_layer, msg->header);
+    final_cost_pub_->publish(final_cost_grid);
 
     const auto best_index = findLowestCostCellIndex(final_cost_layer);
+    saveDebugFrame(
+      *msg, final_cost_grid, robot_point, input.target_point_m, best_index, callback_started,
+      callback_received_time_sec);
     if (!best_index.has_value()) {
       RCLCPP_WARN_THROTTLE(
         this->get_logger(), *this->get_clock(), 3000,
@@ -526,6 +744,12 @@ private:
   std::optional<geometry_msgs::msg::PointStamped> latest_target_point_;
   std::optional<nav_msgs::msg::OccupancyGrid> latest_transition_map_;
   std::optional<geometry_msgs::msg::PoseArray> latest_grasp_targets_;
+  std::filesystem::path debug_session_dir_;
+  std::ofstream debug_csv_;
+  bool debug_session_ready_{false};
+  uint64_t debug_session_index_{0U};
+  uint64_t debug_frame_index_{0U};
+  uint64_t debug_saved_snapshot_count_{0U};
 
   rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr target_point_sub_;
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr feasible_map_sub_;
