@@ -5,12 +5,19 @@ approach_cost_runner_node:
     target_point_topic: "/approach/target_point"
     grasp_targets_topic: "/approach/grasp_targets"
     grasp_status_topic: "/approach/grasp_status"
-    robot_frame_id: "base"
+    robot_frame_id: "base_nav"
     output_topic: "/approach/final_cost_map"
     arrow_topic: "/approach/best_cost_arrow"
+    candidate_arrow_topic: "/approach/candidate_cost_arrow"
+    approach_ready_topic: "/approach/approach_ready"
     transform_timeout_sec: 0.1
     grasp_radius_m: 0.9
+    min_feasible_cells: 25
+    best_neighbor_radius_m: 0.30
+    min_best_neighbor_cells: 5
+    stable_duration_sec: 0.70
+    stable_position_tolerance_m: 0.15
     debug_save_enable: true
     debug_output_dir: "/home/nvidia/inha_log/module/approach_cost_debug"
-    debug_save_every_n_frames: 5
+    debug_save_every_n_frames: 20
     debug_max_frames_per_session: 600

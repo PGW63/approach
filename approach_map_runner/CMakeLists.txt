@@ -33,6 +33,7 @@ find_package(pcl_conversions REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -96,6 +97,7 @@ ament_target_dependencies(approach_map_runner_node
   pcl_conversions
   rclcpp
   sensor_msgs
+  std_msgs
   tf2
   tf2_geometry_msgs
   tf2_ros
@@ -109,6 +111,7 @@ ament_target_dependencies(approach_cost_runner_node
   geometry_msgs
   nav_msgs
   rclcpp
+  std_msgs
   tf2
   tf2_geometry_msgs
   tf2_ros

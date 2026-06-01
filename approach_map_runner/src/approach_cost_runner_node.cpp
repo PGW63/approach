@@ -18,6 +18,7 @@
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/header.hpp>
 #include <tf2/exceptions.h>
 #include <tf2/time.h>
@@ -42,8 +43,15 @@ struct CostRunnerConfig
   std::string robot_frame_id{"base"};
   std::string output_topic{"final_cost_map"};
   std::string arrow_topic{"/approach/best_cost_arrow"};
+  std::string candidate_arrow_topic{"/approach/candidate_cost_arrow"};
+  std::string approach_ready_topic{"/approach/approach_ready"};
   double transform_timeout_sec{0.1};
   double grasp_radius_m{0.9};
+  int min_feasible_cells{10};
+  double best_neighbor_radius_m{0.30};
+  int min_best_neighbor_cells{5};
+  double stable_duration_sec{0.70};
+  double stable_position_tolerance_m{0.15};
   bool debug_save_enable{false};
   std::string debug_output_dir{"/tmp/approach_cost_debug"};
   int debug_save_every_n_frames{1};
@@ -67,9 +75,25 @@ CostRunnerConfig loadCostRunnerConfig(rclcpp::Node & node)
     node.declare_parameter("robot_frame_id", config.robot_frame_id);
   config.output_topic = node.declare_parameter("output_topic", config.output_topic);
   config.arrow_topic = node.declare_parameter("arrow_topic", config.arrow_topic);
+  config.candidate_arrow_topic =
+    node.declare_parameter("candidate_arrow_topic", config.candidate_arrow_topic);
+  config.approach_ready_topic =
+    node.declare_parameter("approach_ready_topic", config.approach_ready_topic);
   config.transform_timeout_sec =
     node.declare_parameter("transform_timeout_sec", config.transform_timeout_sec);
   config.grasp_radius_m = node.declare_parameter("grasp_radius_m", config.grasp_radius_m);
+  config.min_feasible_cells = static_cast<int>(std::max<std::int64_t>(
+      0, node.declare_parameter("min_feasible_cells", config.min_feasible_cells)));
+  config.best_neighbor_radius_m = std::max(
+    0.0, node.declare_parameter("best_neighbor_radius_m", config.best_neighbor_radius_m));
+  config.min_best_neighbor_cells = static_cast<int>(std::max<std::int64_t>(
+      0, node.declare_parameter("min_best_neighbor_cells", config.min_best_neighbor_cells)));
+  config.stable_duration_sec = std::max(
+    0.0, node.declare_parameter("stable_duration_sec", config.stable_duration_sec));
+  config.stable_position_tolerance_m = std::max(
+    0.0,
+    node.declare_parameter(
+      "stable_position_tolerance_m", config.stable_position_tolerance_m));
   config.debug_save_enable =
     node.declare_parameter("debug_save_enable", config.debug_save_enable);
   config.debug_output_dir =
@@ -199,6 +223,37 @@ std::size_t countValidCostCells(const nav_msgs::msg::OccupancyGrid & grid)
 {
   return static_cast<std::size_t>(std::count_if(
     grid.data.begin(), grid.data.end(), [](int8_t value) {return value >= 0;}));
+}
+
+std::size_t countCandidateCells(const std::vector<uint8_t> & candidate_mask)
+{
+  return static_cast<std::size_t>(std::count_if(
+    candidate_mask.begin(), candidate_mask.end(), [](uint8_t value) {return value != 0U;}));
+}
+
+std::size_t countCandidateNeighbors(
+  const approach_map::GridMeta & meta,
+  const std::vector<uint8_t> & candidate_mask,
+  const approach_map::XYPoint & center,
+  double radius_m)
+{
+  const double radius_squared_m = radius_m * radius_m;
+  std::size_t count = 0U;
+
+  for (std::size_t i = 0; i < candidate_mask.size(); ++i) {
+    if (candidate_mask[i] == 0U) {
+      continue;
+    }
+
+    const auto point = cellCenter(meta, i);
+    const double dx = point.x_m - center.x_m;
+    const double dy = point.y_m - center.y_m;
+    if (dx * dx + dy * dy <= radius_squared_m) {
+      ++count;
+    }
+  }
+
+  return count;
 }
 
 double stampSeconds(const builtin_interfaces::msg::Time & stamp)
@@ -347,8 +402,16 @@ public:
       runner_config_.output_topic, 1);
     best_arrow_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>(
       runner_config_.arrow_topic, 1);
+    candidate_arrow_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>(
+      runner_config_.candidate_arrow_topic, 1);
+    auto approach_ready_qos = rclcpp::QoS(rclcpp::KeepLast(1));
+    approach_ready_qos.reliable();
+    approach_ready_qos.transient_local();
+    approach_ready_pub_ = this->create_publisher<std_msgs::msg::Bool>(
+      runner_config_.approach_ready_topic, approach_ready_qos);
     grasp_status_pub_ = this->create_publisher<inha_interfaces::msg::GraspApproachStatus>(
       runner_config_.grasp_status_topic, 1);
+    publishApproachReady(false);
 
     auto target_point_qos = rclcpp::QoS(rclcpp::KeepLast(1));
     target_point_qos.reliable();
@@ -374,6 +437,15 @@ public:
 
     RCLCPP_INFO(this->get_logger(), "Loaded cost config: %s", cost_config_path.c_str());
     RCLCPP_INFO(this->get_logger(), "Loaded cost runner configuration from ROS parameters.");
+    RCLCPP_INFO(
+      this->get_logger(),
+      "Ready gate: feasible_cells>=%d best_neighbors>=%d within %.2f m stable_for=%.2f sec "
+      "tolerance=%.2f m",
+      runner_config_.min_feasible_cells,
+      runner_config_.min_best_neighbor_cells,
+      runner_config_.best_neighbor_radius_m,
+      runner_config_.stable_duration_sec,
+      runner_config_.stable_position_tolerance_m);
     if (runner_config_.debug_save_enable) {
       RCLCPP_INFO(
         this->get_logger(),
@@ -450,6 +522,51 @@ private:
     return true;
   }
 
+  void publishApproachReady(bool ready)
+  {
+    std_msgs::msg::Bool msg;
+    msg.data = ready;
+    approach_ready_pub_->publish(msg);
+
+    if (ready != last_approach_ready_) {
+      RCLCPP_INFO(
+        this->get_logger(), "Approach ready changed: %s", ready ? "true" : "false");
+      last_approach_ready_ = ready;
+    }
+  }
+
+  void resetBestStability()
+  {
+    stable_best_point_.reset();
+    stable_since_.reset();
+  }
+
+  void invalidateApproachReadiness()
+  {
+    resetBestStability();
+    publishApproachReady(false);
+  }
+
+  bool updateBestStability(const approach_map::XYPoint & best_point)
+  {
+    const auto now = this->now();
+    if (!stable_best_point_.has_value() || !stable_since_.has_value()) {
+      stable_best_point_ = best_point;
+      stable_since_ = now;
+      return runner_config_.stable_duration_sec <= 0.0;
+    }
+
+    const double dx = best_point.x_m - stable_best_point_->x_m;
+    const double dy = best_point.y_m - stable_best_point_->y_m;
+    if (std::hypot(dx, dy) > runner_config_.stable_position_tolerance_m) {
+      stable_best_point_ = best_point;
+      stable_since_ = now;
+      return runner_config_.stable_duration_sec <= 0.0;
+    }
+
+    return (now - stable_since_.value()).seconds() >= runner_config_.stable_duration_sec;
+  }
+
   void startDebugSession(const geometry_msgs::msg::PointStamped & target)
   {
     if (!runner_config_.debug_save_enable) {
@@ -479,7 +596,8 @@ private:
 
       debug_csv_ <<
         "frame,received_time_sec,map_stamp_sec,map_lag_ms,processing_ms,snapshot_write_ms,"
-        "feasible_cells,valid_cost_cells,best_cost,best_x_m,best_y_m,"
+        "feasible_cells,valid_cost_cells,candidate_cells,best_neighbor_cells,best_stable,"
+        "approach_ready,best_cost,best_x_m,best_y_m,"
         "target_x_m,target_y_m,target_distance_m,robot_x_m,robot_y_m,"
         "robot_distance_m,snapshot_saved\n";
       debug_csv_.flush();
@@ -512,7 +630,11 @@ private:
     const approach_map::XYPoint & target_point,
     const std::optional<std::size_t> & best_index,
     const std::chrono::steady_clock::time_point & callback_started,
-    double callback_received_time_sec)
+    double callback_received_time_sec,
+    std::size_t candidate_count,
+    std::size_t best_neighbor_count,
+    bool best_is_stable,
+    bool approach_ready)
   {
     if (!runner_config_.debug_save_enable || !debug_session_ready_) {
       return;
@@ -580,6 +702,10 @@ private:
       snapshot_write_ms << "," <<
       countFeasibleCells(feasible_grid) << "," <<
       countValidCostCells(final_cost_grid) << "," <<
+      candidate_count << "," <<
+      best_neighbor_count << "," <<
+      (best_is_stable ? 1 : 0) << "," <<
+      (approach_ready ? 1 : 0) << "," <<
       best_cost << "," <<
       best_x_m << "," <<
       best_y_m << "," <<
@@ -596,6 +722,8 @@ private:
   void targetPointCallback(const geometry_msgs::msg::PointStamped::SharedPtr msg)
   {
     latest_target_point_ = *msg;
+    resetBestStability();
+    publishApproachReady(false);
     startDebugSession(*msg);
     RCLCPP_INFO(
       this->get_logger(), "Updated cost target point from topic %s",
@@ -656,6 +784,7 @@ private:
     const double callback_received_time_sec = this->now().seconds();
 
     if (!latest_target_point_.has_value()) {
+      invalidateApproachReadiness();
       RCLCPP_WARN_THROTTLE(
         this->get_logger(), *this->get_clock(), 3000,
         "Waiting for target point on %s before publishing cost map.",
@@ -665,6 +794,7 @@ private:
 
     const std::string map_frame = msg->header.frame_id;
     if (map_frame.empty()) {
+      invalidateApproachReadiness();
       RCLCPP_WARN_THROTTLE(
         this->get_logger(), *this->get_clock(), 3000,
         "Received feasible map without frame_id.");
@@ -675,11 +805,13 @@ private:
     if (!transformPoint(
         latest_target_point_.value(), map_frame, transformed_target, "target point", true))
     {
+      invalidateApproachReadiness();
       return;
     }
 
     approach_map::XYPoint robot_point;
     if (!lookupRobotPoint(map_frame, msg->header.stamp, robot_point)) {
+      invalidateApproachReadiness();
       return;
     }
 
@@ -720,10 +852,11 @@ private:
     final_cost_pub_->publish(final_cost_grid);
 
     const auto best_index = findLowestCostCellIndex(final_cost_layer);
-    saveDebugFrame(
-      *msg, final_cost_grid, robot_point, input.target_point_m, best_index, callback_started,
-      callback_received_time_sec);
     if (!best_index.has_value()) {
+      invalidateApproachReadiness();
+      saveDebugFrame(
+        *msg, final_cost_grid, robot_point, input.target_point_m, best_index, callback_started,
+        callback_received_time_sec, countCandidateCells(input.candidate_mask), 0U, false, false);
       RCLCPP_WARN_THROTTLE(
         this->get_logger(), *this->get_clock(), 3000,
         "No valid cell found in final_cost_map for best cost pose.");
@@ -732,9 +865,40 @@ private:
 
     const auto best_point = cellCenter(final_cost_layer.meta, best_index.value());
     const auto target_point = input.target_point_m;
+    const auto candidate_pose = makeBestCostPose(msg->header, best_point, target_point);
+    candidate_arrow_pub_->publish(candidate_pose);
 
-    best_arrow_pub_->publish(makeBestCostPose(
-      msg->header, best_point, target_point));
+    const std::size_t candidate_count = countCandidateCells(input.candidate_mask);
+    const std::size_t best_neighbor_count = countCandidateNeighbors(
+      input.meta, input.candidate_mask, best_point, runner_config_.best_neighbor_radius_m);
+    const bool enough_candidates =
+      candidate_count >= static_cast<std::size_t>(runner_config_.min_feasible_cells) &&
+      best_neighbor_count >= static_cast<std::size_t>(runner_config_.min_best_neighbor_cells);
+
+    bool best_is_stable = false;
+    if (enough_candidates) {
+      best_is_stable = updateBestStability(best_point);
+    } else {
+      resetBestStability();
+    }
+
+    const bool approach_ready = enough_candidates && best_is_stable;
+    publishApproachReady(approach_ready);
+    saveDebugFrame(
+      *msg, final_cost_grid, robot_point, input.target_point_m, best_index, callback_started,
+      callback_received_time_sec, candidate_count, best_neighbor_count, best_is_stable,
+      approach_ready);
+
+    RCLCPP_INFO_THROTTLE(
+      this->get_logger(), *this->get_clock(), 1000,
+      "Ready gate: candidates=%zu/%d best_neighbors=%zu/%d stable=%s ready=%s",
+      candidate_count, runner_config_.min_feasible_cells,
+      best_neighbor_count, runner_config_.min_best_neighbor_cells,
+      best_is_stable ? "yes" : "no", approach_ready ? "yes" : "no");
+
+    if (approach_ready) {
+      best_arrow_pub_->publish(candidate_pose);
+    }
   }
 
   approach_cost::FinalCostConfig cost_config_{};
@@ -744,12 +908,15 @@ private:
   std::optional<geometry_msgs::msg::PointStamped> latest_target_point_;
   std::optional<nav_msgs::msg::OccupancyGrid> latest_transition_map_;
   std::optional<geometry_msgs::msg::PoseArray> latest_grasp_targets_;
+  std::optional<approach_map::XYPoint> stable_best_point_;
+  std::optional<rclcpp::Time> stable_since_;
   std::filesystem::path debug_session_dir_;
   std::ofstream debug_csv_;
   bool debug_session_ready_{false};
   uint64_t debug_session_index_{0U};
   uint64_t debug_frame_index_{0U};
   uint64_t debug_saved_snapshot_count_{0U};
+  bool last_approach_ready_{false};
 
   rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr target_point_sub_;
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr feasible_map_sub_;
@@ -757,6 +924,8 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr grasp_targets_sub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr final_cost_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr best_arrow_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr candidate_arrow_pub_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr approach_ready_pub_;
   rclcpp::Publisher<inha_interfaces::msg::GraspApproachStatus>::SharedPtr grasp_status_pub_;
 };
 
