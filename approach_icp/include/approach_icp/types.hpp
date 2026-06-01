@@ -39,7 +39,7 @@ struct ServiceConfig
 struct RegistrationConfig
 {
     std::string backend = "fast_gicp";
-    int num_threads = 1;
+    int num_threads = 3;
     double resolution = 0.25;
     double max_correspondence_distance = 1.0;
     double transformation_epsilon = 1e-4;

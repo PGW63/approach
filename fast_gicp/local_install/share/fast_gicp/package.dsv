@@ -1,0 +1,4 @@
+source;share/fast_gicp/local_setup.bash
+source;share/fast_gicp/local_setup.dsv
+source;share/fast_gicp/local_setup.sh
+source;share/fast_gicp/local_setup.zsh
