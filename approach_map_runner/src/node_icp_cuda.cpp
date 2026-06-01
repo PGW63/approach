@@ -96,6 +96,8 @@ approach_preprocess::PreprocessConfig loadPreprocessConfig(
         node.declare_parameter("preprocess.downsample_enable", config.downsample_enable);
     config.outlier_removal_enable = node.declare_parameter(
         "preprocess.outlier_removal_enable", config.outlier_removal_enable);
+    config.radius_outlier_removal_enable = node.declare_parameter(
+        "preprocess.radius_outlier_removal_enable", config.radius_outlier_removal_enable);
     config.robot_filter_enable =
         node.declare_parameter("preprocess.robot_filter_enable", config.robot_filter_enable);
     config.ground_removal_enable =
@@ -117,6 +119,13 @@ approach_preprocess::PreprocessConfig loadPreprocessConfig(
     config.mean_k = node.declare_parameter("preprocess.mean_k", config.mean_k);
     config.stddev_mul_thresh =
         node.declare_parameter("preprocess.stddev_mul_thresh", config.stddev_mul_thresh);
+    config.radius_search_m = std::max(
+        1.0e-6,
+        node.declare_parameter("preprocess.radius_search_m", config.radius_search_m));
+    config.min_neighbors_in_radius = std::max(
+        1,
+        node.declare_parameter(
+            "preprocess.min_neighbors_in_radius", config.min_neighbors_in_radius));
 
     return config;
 }
@@ -163,9 +172,14 @@ NodeICPCuda::NodeICPCuda() :
         registration_config_.max_iterations);
     RCLCPP_INFO(
         this->get_logger(),
-        "Loaded ICP preprocess config: voxel_leaf_size=%.3f registration_voxel_leaf_size=%.3f",
+        "Loaded ICP preprocess config: voxel_leaf_size=%.3f registration_voxel_leaf_size=%.3f "
+        "sor=%s radius_outlier=%s radius=%.3f min_neighbors=%d",
         preprocess_config_.voxel_leaf_size,
-        preprocess_config_.registration_voxel_leaf_size);
+        preprocess_config_.registration_voxel_leaf_size,
+        preprocess_config_.outlier_removal_enable ? "on" : "off",
+        preprocess_config_.radius_outlier_removal_enable ? "on" : "off",
+        preprocess_config_.radius_search_m,
+        preprocess_config_.min_neighbors_in_radius);
 
     accumulation_service_ = this->create_service<inha_interfaces::srv::Accumulation>(
         service_config_.accumulation_service_name,
@@ -306,6 +320,9 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr NodeICPCuda::preprocess_cloud_for_mapping(
     }
     if (preprocess_config_.outlier_removal_enable && !processed->empty()) {
         processed = approach_preprocess::removeOutliers(processed, preprocess_config_);
+    }
+    if (preprocess_config_.radius_outlier_removal_enable && !processed->empty()) {
+        processed = approach_preprocess::removeRadiusOutliers(processed, preprocess_config_);
     }
     if (preprocess_config_.robot_filter_enable && !processed->empty()) {
         processed = approach_preprocess::removeRobotPoints(processed, preprocess_config_);

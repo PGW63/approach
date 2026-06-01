@@ -1,6 +1,7 @@
 #pragma once
 
 #include <pcl/filters/passthrough.h>
+#include <pcl/filters/radius_outlier_removal.h>
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/point_cloud.h>
@@ -14,6 +15,7 @@ struct PreprocessConfig
   bool remove_nan_enable{true};
   bool downsample_enable{true};
   bool outlier_removal_enable{true};
+  bool radius_outlier_removal_enable{false};
   bool robot_filter_enable{true};
   bool ground_removal_enable{true};
   bool keep_ground_for_mapping{true};
@@ -26,6 +28,8 @@ struct PreprocessConfig
   double passthrough_ground_z_{0.1};
   int mean_k{20};
   double stddev_mul_thresh{1.0};
+  double radius_search_m{0.15};
+  int min_neighbors_in_radius{3};
 };
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr downsample(
@@ -49,6 +53,10 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr removeGroundPoints(
   const PreprocessConfig & config);
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr removeOutliers(
+  const pcl::PointCloud<pcl::PointXYZ>::Ptr & cloud,
+  const PreprocessConfig & config);
+
+pcl::PointCloud<pcl::PointXYZ>::Ptr removeRadiusOutliers(
   const pcl::PointCloud<pcl::PointXYZ>::Ptr & cloud,
   const PreprocessConfig & config);
 

@@ -96,4 +96,17 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr removeOutliers(
   return filtered;
 }
 
+pcl::PointCloud<pcl::PointXYZ>::Ptr removeRadiusOutliers(
+  const pcl::PointCloud<pcl::PointXYZ>::Ptr & cloud,
+  const PreprocessConfig & config)
+{
+  pcl::PointCloud<pcl::PointXYZ>::Ptr filtered(new pcl::PointCloud<pcl::PointXYZ>());
+  pcl::RadiusOutlierRemoval<pcl::PointXYZ> radius_filter;
+  radius_filter.setInputCloud(cloud);
+  radius_filter.setRadiusSearch(config.radius_search_m);
+  radius_filter.setMinNeighborsInRadius(config.min_neighbors_in_radius);
+  radius_filter.filter(*filtered);
+  return filtered;
+}
+
 }  // namespace approach_preprocess

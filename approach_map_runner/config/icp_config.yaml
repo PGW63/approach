@@ -33,14 +33,17 @@ node_icp_cuda:
       remove_nan_enable: true
       downsample_enable: true
       outlier_removal_enable: true
+      radius_outlier_removal_enable: true
       robot_filter_enable: true
       ground_removal_enable: true
       voxel_leaf_size: 0.05               # mapping path (smaller -> denser map)
       registration_voxel_leaf_size: 0.10  # registration only (larger -> faster ICP)
       passthrough_robot_x_min: -0.30
-      passthrough_robot_x_max: 0.20
-      passthrough_robot_y_min: -0.30
-      passthrough_robot_y_max: 0.30
+      passthrough_robot_x_max: 0.50
+      passthrough_robot_y_min: -0.45
+      passthrough_robot_y_max: 0.45
       passthrough_ground_z: 0.10
       mean_k: 20
       stddev_mul_thresh: 1.0
+      radius_search_m: 0.15
+      min_neighbors_in_radius: 3

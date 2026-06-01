@@ -17,10 +17,10 @@ approach_map_runner_node:
     target_update_threshold_m: 2.0
     initial_origin_x_m: 0.0
     initial_origin_y_m: 0.0
-    ground_z_min_m: -0.40
-    ground_z_max_m: 0.10
-    obstacle_z_min_m: 0.25
-    obstacle_z_max_m: 1.50
+    ground_z_min_m: -0.30
+    ground_z_max_m: -0.20
+    obstacle_z_min_m: -0.11
+    obstacle_z_max_m: 1.80
     publish_heading_bin: 0
     clearance_display_cap_m: 1.5
     transform_timeout_sec: 0.1
