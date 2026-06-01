@@ -1,11 +1,16 @@
-cost_runner:
-  feasible_map_topic: "/approach/feasible_map"
-  transition_map_topic: "/approach/transition_count_map"
-  target_point_topic: "/approach/target_point"
-  grasp_targets_topic: "/approach/grasp_targets"
-  grasp_status_topic: "/approach/grasp_status"
-  robot_frame_id: "base"
-  output_topic: "/approach/final_cost_map"
-  arrow_topic: "/approach/best_cost_arrow"
-  transform_timeout_sec: 0.1
-  grasp_radius_m: 0.9
+approach_cost_runner_node:
+  ros__parameters:
+    feasible_map_topic: "/approach/feasible_map"
+    transition_map_topic: "/approach/transition_count_map"
+    target_point_topic: "/approach/target_point"
+    grasp_targets_topic: "/approach/grasp_targets"
+    grasp_status_topic: "/approach/grasp_status"
+    robot_frame_id: "base"
+    output_topic: "/approach/final_cost_map"
+    arrow_topic: "/approach/best_cost_arrow"
+    transform_timeout_sec: 0.1
+    grasp_radius_m: 0.9
+    debug_save_enable: true
+    debug_output_dir: "/home/nvidia/inha_log/module/approach_cost_debug"
+    debug_save_every_n_frames: 5
+    debug_max_frames_per_session: 600

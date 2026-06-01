@@ -5,9 +5,6 @@
 #include <stdexcept>
 #include <string>
 
-#include <ament_index_cpp/get_package_share_directory.hpp>
-#include <yaml-cpp/yaml.h>
-
 namespace
 {
 
@@ -50,103 +47,76 @@ Eigen::Matrix4f makePlanarTransform(double x, double y, double yaw)
     return transform;
 }
 
-template<typename T>
-T readOptional(const YAML::Node & node, const char * key, const T & default_value)
-{
-    return node && node[key] ? node[key].as<T>() : default_value;
-}
-
-YAML::Node loadIcpYamlRoot(const std::string & yaml_path)
-{
-    try {
-        return YAML::LoadFile(yaml_path);
-    } catch (const std::exception &) {
-        return YAML::Node{};
-    }
-}
-
-RegistrationConfig loadRegistrationConfigFromYaml(
-    const YAML::Node & root,
+RegistrationConfig loadRegistrationConfig(
+    rclcpp::Node & node,
     const RegistrationConfig & defaults)
 {
     RegistrationConfig config = defaults;
-    if (!root) {
-        return config;
-    }
-
-    const YAML::Node icp_node = root["icp"] ? root["icp"] : root;
-    const YAML::Node reg = icp_node["registration"];
-    if (!reg) {
-        return config;
-    }
-
-    config.backend = readOptional<std::string>(reg, "backend", config.backend);
-    config.num_threads = readOptional<int>(reg, "num_threads", config.num_threads);
-    config.resolution = readOptional<double>(reg, "resolution", config.resolution);
-    config.max_correspondence_distance = readOptional<double>(
-        reg, "max_correspondence_distance", config.max_correspondence_distance);
-    config.transformation_epsilon = readOptional<double>(
-        reg, "transformation_epsilon", config.transformation_epsilon);
-    config.euclidean_fitness_epsilon = readOptional<double>(
-        reg, "euclidean_fitness_epsilon", config.euclidean_fitness_epsilon);
-    config.max_iterations = readOptional<int>(reg, "max_iterations", config.max_iterations);
+    config.backend = node.declare_parameter("registration.backend", config.backend);
+    config.num_threads =
+        node.declare_parameter("registration.num_threads", config.num_threads);
+    config.resolution =
+        node.declare_parameter("registration.resolution", config.resolution);
+    config.max_correspondence_distance = node.declare_parameter(
+        "registration.max_correspondence_distance", config.max_correspondence_distance);
+    config.transformation_epsilon = node.declare_parameter(
+        "registration.transformation_epsilon", config.transformation_epsilon);
+    config.euclidean_fitness_epsilon = node.declare_parameter(
+        "registration.euclidean_fitness_epsilon", config.euclidean_fitness_epsilon);
+    config.max_iterations =
+        node.declare_parameter("registration.max_iterations", config.max_iterations);
     config.max_submap_frames =
-        readOptional<int>(reg, "max_submap_frames", config.max_submap_frames);
-    config.max_angular_velocity_for_update = readOptional<double>(
-        reg, "max_angular_velocity_for_update", config.max_angular_velocity_for_update);
-    config.max_planar_translation_correction = readOptional<double>(
-        reg, "max_planar_translation_correction", config.max_planar_translation_correction);
+        node.declare_parameter("registration.max_submap_frames", config.max_submap_frames);
+    config.max_angular_velocity_for_update = node.declare_parameter(
+        "registration.max_angular_velocity_for_update",
+        config.max_angular_velocity_for_update);
+    config.max_planar_translation_correction = node.declare_parameter(
+        "registration.max_planar_translation_correction",
+        config.max_planar_translation_correction);
     config.max_yaw_correction =
-        readOptional<double>(reg, "max_yaw_correction", config.max_yaw_correction);
+        node.declare_parameter("registration.max_yaw_correction", config.max_yaw_correction);
     config.max_roll_correction =
-        readOptional<double>(reg, "max_roll_correction", config.max_roll_correction);
+        node.declare_parameter("registration.max_roll_correction", config.max_roll_correction);
     config.max_pitch_correction =
-        readOptional<double>(reg, "max_pitch_correction", config.max_pitch_correction);
+        node.declare_parameter("registration.max_pitch_correction", config.max_pitch_correction);
     config.max_z_correction =
-        readOptional<double>(reg, "max_z_correction", config.max_z_correction);
+        node.declare_parameter("registration.max_z_correction", config.max_z_correction);
 
     return config;
 }
 
-approach_preprocess::PreprocessConfig loadPreprocessConfigFromYaml(
-    const YAML::Node & root,
+approach_preprocess::PreprocessConfig loadPreprocessConfig(
+    rclcpp::Node & node,
     const approach_preprocess::PreprocessConfig & defaults)
 {
     approach_preprocess::PreprocessConfig config = defaults;
-    if (!root) {
-        return config;
-    }
-
-    const YAML::Node icp_node = root["icp"] ? root["icp"] : root;
-    const YAML::Node pp = icp_node["preprocess"] ? icp_node["preprocess"] : icp_node;
-
     config.remove_nan_enable =
-        readOptional<bool>(pp, "remove_nan_enable", config.remove_nan_enable);
+        node.declare_parameter("preprocess.remove_nan_enable", config.remove_nan_enable);
     config.downsample_enable =
-        readOptional<bool>(pp, "downsample_enable", config.downsample_enable);
-    config.outlier_removal_enable =
-        readOptional<bool>(pp, "outlier_removal_enable", config.outlier_removal_enable);
+        node.declare_parameter("preprocess.downsample_enable", config.downsample_enable);
+    config.outlier_removal_enable = node.declare_parameter(
+        "preprocess.outlier_removal_enable", config.outlier_removal_enable);
     config.robot_filter_enable =
-        readOptional<bool>(pp, "robot_filter_enable", config.robot_filter_enable);
+        node.declare_parameter("preprocess.robot_filter_enable", config.robot_filter_enable);
     config.ground_removal_enable =
-        readOptional<bool>(pp, "ground_removal_enable", config.ground_removal_enable);
+        node.declare_parameter("preprocess.ground_removal_enable", config.ground_removal_enable);
     config.voxel_leaf_size =
-        readOptional<double>(pp, "voxel_leaf_size", config.voxel_leaf_size);
-    config.registration_voxel_leaf_size = readOptional<double>(
-        pp, "registration_voxel_leaf_size", config.registration_voxel_leaf_size);
-    config.passthrough_robot_x_min =
-        readOptional<double>(pp, "passthrough_robot_x_min", config.passthrough_robot_x_min);
-    config.passthrough_robot_x_max =
-        readOptional<double>(pp, "passthrough_robot_x_max", config.passthrough_robot_x_max);
-    config.passthrough_robot_y_min =
-        readOptional<double>(pp, "passthrough_robot_y_min", config.passthrough_robot_y_min);
-    config.passthrough_robot_y_max =
-        readOptional<double>(pp, "passthrough_robot_y_max", config.passthrough_robot_y_max);
+        node.declare_parameter("preprocess.voxel_leaf_size", config.voxel_leaf_size);
+    config.registration_voxel_leaf_size = node.declare_parameter(
+        "preprocess.registration_voxel_leaf_size", config.registration_voxel_leaf_size);
+    config.passthrough_robot_x_min = node.declare_parameter(
+        "preprocess.passthrough_robot_x_min", config.passthrough_robot_x_min);
+    config.passthrough_robot_x_max = node.declare_parameter(
+        "preprocess.passthrough_robot_x_max", config.passthrough_robot_x_max);
+    config.passthrough_robot_y_min = node.declare_parameter(
+        "preprocess.passthrough_robot_y_min", config.passthrough_robot_y_min);
+    config.passthrough_robot_y_max = node.declare_parameter(
+        "preprocess.passthrough_robot_y_max", config.passthrough_robot_y_max);
     config.passthrough_ground_z_ =
-        readOptional<double>(pp, "passthrough_ground_z", config.passthrough_ground_z_);
-    config.mean_k = readOptional<int>(pp, "mean_k", config.mean_k);
+        node.declare_parameter("preprocess.passthrough_ground_z", config.passthrough_ground_z_);
+    config.mean_k = node.declare_parameter("preprocess.mean_k", config.mean_k);
     config.stddev_mul_thresh =
-        readOptional<double>(pp, "stddev_mul_thresh", config.stddev_mul_thresh);
+        node.declare_parameter("preprocess.stddev_mul_thresh", config.stddev_mul_thresh);
 
     return config;
 }
@@ -161,14 +131,30 @@ NodeICPCuda::NodeICPCuda() :
     measure_registration_metrics_ =
         this->declare_parameter<bool>("measure_registration_metrics", false);
 
-    const auto runner_share =
-        ament_index_cpp::get_package_share_directory("approach_map_runner");
-    const std::string icp_config_path = runner_share + "/config/icp_config.yaml";
-    const YAML::Node icp_yaml_root = loadIcpYamlRoot(icp_config_path);
-    registration_config_ =
-        loadRegistrationConfigFromYaml(icp_yaml_root, registration_config_);
-    preprocess_config_ =
-        loadPreprocessConfigFromYaml(icp_yaml_root, preprocess_config_);
+    frame_config_.map_frame =
+        this->declare_parameter("frames.map", frame_config_.map_frame);
+    frame_config_.odom_frame =
+        this->declare_parameter("frames.odom", frame_config_.odom_frame);
+    frame_config_.base_frame =
+        this->declare_parameter("frames.base", frame_config_.base_frame);
+    frame_config_.sensor_frame =
+        this->declare_parameter("frames.sensor", frame_config_.sensor_frame);
+    frame_config_.camera_frame =
+        this->declare_parameter("frames.camera", frame_config_.camera_frame);
+
+    topic_config_.input_cloud_topic =
+        this->declare_parameter("topics.input_cloud", topic_config_.input_cloud_topic);
+    publish_topic_name_.aligned_cloud_topic =
+        this->declare_parameter("topics.aligned_cloud", publish_topic_name_.aligned_cloud_topic);
+    publish_topic_name_.accumulation_cloud_topic = this->declare_parameter(
+        "topics.accumulated_cloud", publish_topic_name_.accumulation_cloud_topic);
+    publish_topic_name_.submap_cloud_topic =
+        this->declare_parameter("topics.submap_cloud", publish_topic_name_.submap_cloud_topic);
+    service_config_.accumulation_service_name = this->declare_parameter(
+        "services.accumulation", service_config_.accumulation_service_name);
+
+    registration_config_ = loadRegistrationConfig(*this, registration_config_);
+    preprocess_config_ = loadPreprocessConfig(*this, preprocess_config_);
     RCLCPP_INFO(
         this->get_logger(),
         "Loaded ICP registration config: backend=%s num_threads=%d max_iterations=%d",

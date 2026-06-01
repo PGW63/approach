@@ -20,7 +20,6 @@ if(EXISTS "${FAST_GICP_LOCAL_PREFIX}/share/fast_gicp/cmake/fast_gicpConfig.cmake
 endif()
 
 find_package(ament_cmake REQUIRED)
-find_package(ament_index_cpp REQUIRED)
 find_package(approach_icp REQUIRED)
 find_package(approach_mapping REQUIRED)
 find_package(approach_cost REQUIRED)
@@ -39,7 +38,6 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_sensor_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
-find_package(yaml-cpp REQUIRED)
 
 add_executable(approach_map_runner_node
   src/approach_map_runner_node.cpp
@@ -71,19 +69,16 @@ target_include_directories(node_icp_cuda PUBLIC
 target_link_libraries(approach_map_runner_node
   approach_mapping::approach_map_lib
   approach_preprocess::approach_preprocess_lib
-  yaml-cpp
 )
 
 target_link_libraries(approach_cost_runner_node
   approach_mapping::approach_map_lib
   approach_cost::approach_cost_lib
-  yaml-cpp
 )
 
 target_link_libraries(node_icp_cuda
   approach_icp::approach_icp_core
   approach_preprocess::approach_preprocess_lib
-  yaml-cpp
 )
 
 if(EXISTS "${FAST_GICP_LOCAL_LIB_DIR}")
@@ -94,7 +89,6 @@ if(EXISTS "${FAST_GICP_LOCAL_LIB_DIR}")
 endif()
 
 ament_target_dependencies(approach_map_runner_node
-  ament_index_cpp
   approach_mapping
   approach_preprocess
   geometry_msgs
@@ -110,7 +104,6 @@ ament_target_dependencies(approach_map_runner_node
 )
 
 ament_target_dependencies(approach_cost_runner_node
-  ament_index_cpp
   approach_mapping
   approach_cost
   geometry_msgs
@@ -124,7 +117,6 @@ ament_target_dependencies(approach_cost_runner_node
 )
 
 ament_target_dependencies(node_icp_cuda
-  ament_index_cpp
   approach_icp
   approach_preprocess
   fast_gicp

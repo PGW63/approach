@@ -8,7 +8,6 @@
 #include <utility>
 #include <vector>
 
-#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <geometry_msgs/msg/point_stamped.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
@@ -23,8 +22,6 @@
 #include <tf2_ros/create_timer_ros.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
-#include <yaml-cpp/yaml.h>
-
 #include "approach_map/map.hpp"
 #include "inha_interfaces/srv/mapping_control.hpp"
 #include "approach_preprocess/preprocess.hpp"
@@ -71,86 +68,75 @@ struct RunnerConfig
   double robot_filter_y_max{0.3};
 };
 
-template<typename T>
-T readRequired(const YAML::Node & node, const char * key)
+RunnerConfig loadRunnerConfig(rclcpp::Node & node)
 {
-  if (!node[key]) {
-    throw std::runtime_error(std::string("Missing required runner config key: ") + key);
-  }
-  return node[key].as<T>();
-}
-
-template<typename T>
-T readOptional(const YAML::Node & node, const char * key, const T & default_value)
-{
-  return node[key] ? node[key].as<T>() : default_value;
-}
-
-RunnerConfig loadRunnerConfig(const std::string & yaml_path)
-{
-  const YAML::Node root = YAML::LoadFile(yaml_path);
-  const YAML::Node runner = root["runner"] ? root["runner"] : root;
-
   RunnerConfig config;
-  config.input_cloud_topic = readRequired<std::string>(runner, "input_cloud_topic");
-  config.target_point_topic = runner["target_point_topic"] ?
-    runner["target_point_topic"].as<std::string>() :
-    readOptional<std::string>(runner, "clicked_point_topic", config.target_point_topic);
-  config.grasp_targets_topic = readOptional<std::string>(
-    runner, "grasp_targets_topic", config.grasp_targets_topic);
-  config.mapping_service_name = readOptional<std::string>(
-    runner, "mapping_service_name", config.mapping_service_name);
-  config.map_frame_id = readRequired<std::string>(runner, "map_frame_id");
-  config.obstacle_map_topic = readOptional<std::string>(
-    runner, "obstacle_map_topic", config.obstacle_map_topic);
-  config.nav2_obstacle_map_topic = readOptional<std::string>(
-    runner, "nav2_obstacle_map_topic", config.nav2_obstacle_map_topic);
-  config.feasible_map_topic = readOptional<std::string>(
-    runner, "feasible_map_topic", config.feasible_map_topic);
-  config.nav2_feasible_map_topic = readOptional<std::string>(
-    runner, "nav2_feasible_map_topic", config.nav2_feasible_map_topic);
-  config.clearance_map_topic = readOptional<std::string>(
-    runner, "clearance_map_topic", config.clearance_map_topic);
-  config.transition_map_topic = readOptional<std::string>(
-    runner, "transition_map_topic", config.transition_map_topic);
+  config.input_cloud_topic =
+    node.declare_parameter("input_cloud_topic", config.input_cloud_topic);
+  config.target_point_topic =
+    node.declare_parameter("target_point_topic", config.target_point_topic);
+  config.grasp_targets_topic =
+    node.declare_parameter("grasp_targets_topic", config.grasp_targets_topic);
+  config.mapping_service_name =
+    node.declare_parameter("mapping_service_name", config.mapping_service_name);
+  config.map_frame_id = node.declare_parameter("map_frame_id", config.map_frame_id);
+  config.obstacle_map_topic =
+    node.declare_parameter("obstacle_map_topic", config.obstacle_map_topic);
+  config.nav2_obstacle_map_topic =
+    node.declare_parameter("nav2_obstacle_map_topic", config.nav2_obstacle_map_topic);
+  config.feasible_map_topic =
+    node.declare_parameter("feasible_map_topic", config.feasible_map_topic);
+  config.nav2_feasible_map_topic =
+    node.declare_parameter("nav2_feasible_map_topic", config.nav2_feasible_map_topic);
+  config.clearance_map_topic =
+    node.declare_parameter("clearance_map_topic", config.clearance_map_topic);
+  config.transition_map_topic =
+    node.declare_parameter("transition_map_topic", config.transition_map_topic);
   config.robot_filter_frame_id =
-    readOptional<std::string>(runner, "robot_filter_frame_id", config.robot_filter_frame_id);
-  config.use_initial_origin = readRequired<bool>(runner, "use_initial_origin");
-  config.allow_origin_updates_after_first_click =
-    readOptional<bool>(runner, "allow_origin_updates_after_first_click", false);
-  config.target_update_threshold_m = readOptional<double>(
-    runner, "target_update_threshold_m", config.target_update_threshold_m);
-  config.initial_origin_x_m = readRequired<double>(runner, "initial_origin_x_m");
-  config.initial_origin_y_m = readRequired<double>(runner, "initial_origin_y_m");
-  config.ground_z_min_m = readRequired<double>(runner, "ground_z_min_m");
-  config.ground_z_max_m = readRequired<double>(runner, "ground_z_max_m");
-  config.obstacle_z_min_m = readRequired<double>(runner, "obstacle_z_min_m");
-  config.obstacle_z_max_m = readRequired<double>(runner, "obstacle_z_max_m");
-  config.publish_heading_bin = readRequired<int>(runner, "publish_heading_bin");
-  config.clearance_display_cap_m = readRequired<double>(runner, "clearance_display_cap_m");
-  config.transform_timeout_sec = readRequired<double>(runner, "transform_timeout_sec");
+    node.declare_parameter("robot_filter_frame_id", config.robot_filter_frame_id);
+  config.use_initial_origin =
+    node.declare_parameter("use_initial_origin", config.use_initial_origin);
+  config.allow_origin_updates_after_first_click = node.declare_parameter(
+    "allow_origin_updates_after_first_click", config.allow_origin_updates_after_first_click);
+  config.target_update_threshold_m =
+    node.declare_parameter("target_update_threshold_m", config.target_update_threshold_m);
+  config.initial_origin_x_m =
+    node.declare_parameter("initial_origin_x_m", config.initial_origin_x_m);
+  config.initial_origin_y_m =
+    node.declare_parameter("initial_origin_y_m", config.initial_origin_y_m);
+  config.ground_z_min_m = node.declare_parameter("ground_z_min_m", config.ground_z_min_m);
+  config.ground_z_max_m = node.declare_parameter("ground_z_max_m", config.ground_z_max_m);
+  config.obstacle_z_min_m =
+    node.declare_parameter("obstacle_z_min_m", config.obstacle_z_min_m);
+  config.obstacle_z_max_m =
+    node.declare_parameter("obstacle_z_max_m", config.obstacle_z_max_m);
+  config.publish_heading_bin =
+    node.declare_parameter("publish_heading_bin", config.publish_heading_bin);
+  config.clearance_display_cap_m =
+    node.declare_parameter("clearance_display_cap_m", config.clearance_display_cap_m);
+  config.transform_timeout_sec =
+    node.declare_parameter("transform_timeout_sec", config.transform_timeout_sec);
   config.preprocess_remove_nan_enable =
-    readOptional<bool>(runner, "preprocess_remove_nan_enable", config.preprocess_remove_nan_enable);
+    node.declare_parameter("preprocess_remove_nan_enable", config.preprocess_remove_nan_enable);
   config.preprocess_downsample_enable =
-    readOptional<bool>(runner, "preprocess_downsample_enable", config.preprocess_downsample_enable);
-  config.preprocess_outlier_removal_enable =
-    readOptional<bool>(
-    runner, "preprocess_outlier_removal_enable", config.preprocess_outlier_removal_enable);
+    node.declare_parameter("preprocess_downsample_enable", config.preprocess_downsample_enable);
+  config.preprocess_outlier_removal_enable = node.declare_parameter(
+    "preprocess_outlier_removal_enable", config.preprocess_outlier_removal_enable);
   config.robot_filter_enable =
-    readOptional<bool>(runner, "robot_filter_enable", config.robot_filter_enable);
+    node.declare_parameter("robot_filter_enable", config.robot_filter_enable);
   config.preprocess_voxel_leaf_size =
-    readOptional<double>(runner, "preprocess_voxel_leaf_size", config.preprocess_voxel_leaf_size);
-  config.outlier_mean_k = readOptional<int>(runner, "outlier_mean_k", config.outlier_mean_k);
+    node.declare_parameter("preprocess_voxel_leaf_size", config.preprocess_voxel_leaf_size);
+  config.outlier_mean_k = node.declare_parameter("outlier_mean_k", config.outlier_mean_k);
   config.outlier_stddev_mul_thresh =
-    readOptional<double>(runner, "outlier_stddev_mul_thresh", config.outlier_stddev_mul_thresh);
+    node.declare_parameter("outlier_stddev_mul_thresh", config.outlier_stddev_mul_thresh);
   config.robot_filter_x_min =
-    readOptional<double>(runner, "robot_filter_x_min", config.robot_filter_x_min);
+    node.declare_parameter("robot_filter_x_min", config.robot_filter_x_min);
   config.robot_filter_x_max =
-    readOptional<double>(runner, "robot_filter_x_max", config.robot_filter_x_max);
+    node.declare_parameter("robot_filter_x_max", config.robot_filter_x_max);
   config.robot_filter_y_min =
-    readOptional<double>(runner, "robot_filter_y_min", config.robot_filter_y_min);
+    node.declare_parameter("robot_filter_y_min", config.robot_filter_y_min);
   config.robot_filter_y_max =
-    readOptional<double>(runner, "robot_filter_y_max", config.robot_filter_y_max);
+    node.declare_parameter("robot_filter_y_max", config.robot_filter_y_max);
   return config;
 }
 
@@ -310,14 +296,14 @@ public:
   ApproachMapRunnerNode()
   : Node("approach_map_runner_node")
   {
-    const auto approach_share = ament_index_cpp::get_package_share_directory("approach_mapping");
-    const auto runner_share = ament_index_cpp::get_package_share_directory("approach_map_runner");
-
-    const std::string map_config_path = approach_share + "/config/map_config.yaml";
-    const std::string runner_config_path = runner_share + "/config/runner_config.yaml";
+    const std::string map_config_path =
+      this->declare_parameter<std::string>("map_config_path", "");
+    if (map_config_path.empty()) {
+      throw std::runtime_error("map_config_path parameter is required");
+    }
 
     map_config_ = approach_map::loadConfigFromYaml(map_config_path);
-    runner_config_ = loadRunnerConfig(runner_config_path);
+    runner_config_ = loadRunnerConfig(*this);
     preprocess_config_ = makePreprocessConfig(runner_config_);
 
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
@@ -363,7 +349,7 @@ public:
       std::bind(&ApproachMapRunnerNode::cloudCallback, this, std::placeholders::_1));
 
     RCLCPP_INFO(this->get_logger(), "Loaded map config: %s", map_config_path.c_str());
-    RCLCPP_INFO(this->get_logger(), "Loaded runner config: %s", runner_config_path.c_str());
+    RCLCPP_INFO(this->get_logger(), "Loaded runner configuration from ROS parameters.");
     RCLCPP_INFO(this->get_logger(), "Mapping frame: %s", runner_config_.map_frame_id.c_str());
     RCLCPP_INFO(
       this->get_logger(), "Mapping service: %s", runner_config_.mapping_service_name.c_str());
