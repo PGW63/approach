@@ -12,6 +12,7 @@ approach_cost_runner_node:
     approach_ready_topic: "/approach/approach_ready"
     transform_timeout_sec: 0.1
     grasp_radius_m: 0.9
+    robot_start_search_radius_m: 0.30
     min_feasible_cells: 25
     best_neighbor_radius_m: 0.30
     min_best_neighbor_cells: 5

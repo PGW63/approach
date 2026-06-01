@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -47,6 +48,7 @@ struct CostRunnerConfig
   std::string approach_ready_topic{"/approach/approach_ready"};
   double transform_timeout_sec{0.1};
   double grasp_radius_m{0.9};
+  double robot_start_search_radius_m{0.30};
   int min_feasible_cells{10};
   double best_neighbor_radius_m{0.30};
   int min_best_neighbor_cells{5};
@@ -82,6 +84,10 @@ CostRunnerConfig loadCostRunnerConfig(rclcpp::Node & node)
   config.transform_timeout_sec =
     node.declare_parameter("transform_timeout_sec", config.transform_timeout_sec);
   config.grasp_radius_m = node.declare_parameter("grasp_radius_m", config.grasp_radius_m);
+  config.robot_start_search_radius_m = std::max(
+    0.0,
+    node.declare_parameter(
+      "robot_start_search_radius_m", config.robot_start_search_radius_m));
   config.min_feasible_cells = static_cast<int>(std::max<std::int64_t>(
       0, node.declare_parameter("min_feasible_cells", config.min_feasible_cells)));
   config.best_neighbor_radius_m = std::max(
@@ -229,6 +235,87 @@ std::size_t countCandidateCells(const std::vector<uint8_t> & candidate_mask)
 {
   return static_cast<std::size_t>(std::count_if(
     candidate_mask.begin(), candidate_mask.end(), [](uint8_t value) {return value != 0U;}));
+}
+
+struct ReachableFeasibleResult
+{
+  std::vector<uint8_t> reachable_mask;
+  std::optional<std::size_t> start_index;
+  std::size_t reachable_count{0U};
+};
+
+ReachableFeasibleResult computeReachableFeasibleMask(
+  const approach_map::GridMeta & meta,
+  const std::vector<uint8_t> & feasible_mask,
+  const approach_map::XYPoint & robot_point,
+  double start_search_radius_m)
+{
+  ReachableFeasibleResult result;
+  result.reachable_mask.assign(feasible_mask.size(), 0U);
+
+  const std::size_t expected_size = meta.width_cells * meta.height_cells;
+  if (feasible_mask.size() != expected_size || meta.width_cells == 0U || meta.height_cells == 0U) {
+    return result;
+  }
+
+  const double radius_squared_m = start_search_radius_m * start_search_radius_m;
+  double nearest_distance_squared_m = radius_squared_m;
+
+  for (std::size_t i = 0; i < feasible_mask.size(); ++i) {
+    if (feasible_mask[i] == 0U) {
+      continue;
+    }
+
+    const auto point = cellCenter(meta, i);
+    const double dx = point.x_m - robot_point.x_m;
+    const double dy = point.y_m - robot_point.y_m;
+    const double distance_squared_m = dx * dx + dy * dy;
+    if (distance_squared_m > radius_squared_m) {
+      continue;
+    }
+
+    if (!result.start_index.has_value() || distance_squared_m < nearest_distance_squared_m) {
+      result.start_index = i;
+      nearest_distance_squared_m = distance_squared_m;
+    }
+  }
+
+  if (!result.start_index.has_value()) {
+    return result;
+  }
+
+  constexpr int kNeighborDx[] = {1, -1, 0, 0};
+  constexpr int kNeighborDy[] = {0, 0, 1, -1};
+  std::deque<std::size_t> pending;
+  pending.push_back(result.start_index.value());
+  result.reachable_mask[result.start_index.value()] = 1U;
+
+  while (!pending.empty()) {
+    const std::size_t index = pending.front();
+    pending.pop_front();
+    ++result.reachable_count;
+
+    const int x_cell = static_cast<int>(index % meta.width_cells);
+    const int y_cell = static_cast<int>(index / meta.width_cells);
+    for (std::size_t direction = 0U; direction < 4U; ++direction) {
+      const int neighbor_x = x_cell + kNeighborDx[direction];
+      const int neighbor_y = y_cell + kNeighborDy[direction];
+      if (!approach_map::isInsideGrid(meta, neighbor_x, neighbor_y)) {
+        continue;
+      }
+
+      const std::size_t neighbor_index = approach_map::flattenIndex(
+        meta, static_cast<std::size_t>(neighbor_x), static_cast<std::size_t>(neighbor_y));
+      if (feasible_mask[neighbor_index] == 0U || result.reachable_mask[neighbor_index] != 0U) {
+        continue;
+      }
+
+      result.reachable_mask[neighbor_index] = 1U;
+      pending.push_back(neighbor_index);
+    }
+  }
+
+  return result;
 }
 
 std::size_t countCandidateNeighbors(
@@ -439,8 +526,9 @@ public:
     RCLCPP_INFO(this->get_logger(), "Loaded cost runner configuration from ROS parameters.");
     RCLCPP_INFO(
       this->get_logger(),
-      "Ready gate: feasible_cells>=%d best_neighbors>=%d within %.2f m stable_for=%.2f sec "
-      "tolerance=%.2f m",
+      "Ready gate: robot_start_search<=%.2f m with 4-connected feasible cells, "
+      "candidate_cells>=%d best_neighbors>=%d within %.2f m stable_for=%.2f sec tolerance=%.2f m",
+      runner_config_.robot_start_search_radius_m,
       runner_config_.min_feasible_cells,
       runner_config_.min_best_neighbor_cells,
       runner_config_.best_neighbor_radius_m,
@@ -596,8 +684,8 @@ private:
 
       debug_csv_ <<
         "frame,received_time_sec,map_stamp_sec,map_lag_ms,processing_ms,snapshot_write_ms,"
-        "feasible_cells,valid_cost_cells,candidate_cells,best_neighbor_cells,best_stable,"
-        "approach_ready,best_cost,best_x_m,best_y_m,"
+        "feasible_cells,reachable_start_found,reachable_feasible_cells,valid_cost_cells,"
+        "candidate_cells,best_neighbor_cells,best_stable,approach_ready,best_cost,best_x_m,best_y_m,"
         "target_x_m,target_y_m,target_distance_m,robot_x_m,robot_y_m,"
         "robot_distance_m,snapshot_saved\n";
       debug_csv_.flush();
@@ -608,6 +696,8 @@ private:
         "belongs to the matching frames.csv row.\n"
         "PGM encoding: unknown=127, known grid value 0..100 mapped to 0..255.\n"
         "Lower final-cost brightness is preferred. Feasible cells are white.\n"
+        "CSV reachability: reachable_start_found indicates whether a feasible cell was found "
+        "near the robot; reachable_feasible_cells counts its 4-connected region.\n"
         "target_frame=" << target.header.frame_id << "\n"
         "target_x_m=" << target.point.x << "\n"
         "target_y_m=" << target.point.y << "\n";
@@ -631,6 +721,8 @@ private:
     const std::optional<std::size_t> & best_index,
     const std::chrono::steady_clock::time_point & callback_started,
     double callback_received_time_sec,
+    bool reachable_start_found,
+    std::size_t reachable_feasible_count,
     std::size_t candidate_count,
     std::size_t best_neighbor_count,
     bool best_is_stable,
@@ -701,6 +793,8 @@ private:
       processing_ms << "," <<
       snapshot_write_ms << "," <<
       countFeasibleCells(feasible_grid) << "," <<
+      (reachable_start_found ? 1 : 0) << "," <<
+      reachable_feasible_count << "," <<
       countValidCostCells(final_cost_grid) << "," <<
       candidate_count << "," <<
       best_neighbor_count << "," <<
@@ -821,7 +915,17 @@ private:
       transformed_target.point.x,
       transformed_target.point.y};
     input.robot_point_m = robot_point;
-    input.candidate_mask = candidateMaskFromFeasibleMap(*msg);
+    const auto feasible_mask = candidateMaskFromFeasibleMap(*msg);
+    const auto reachable = computeReachableFeasibleMask(
+      input.meta, feasible_mask, robot_point, runner_config_.robot_start_search_radius_m);
+    input.candidate_mask = reachable.reachable_mask;
+    if (!reachable.start_index.has_value()) {
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 3000,
+        "No feasible start cell found within %.2f m of robot position. "
+        "Blocking best arrow publication.",
+        runner_config_.robot_start_search_radius_m);
+    }
 
     const auto grasp_objects = graspObjectsInFrame(map_frame);
     if (!grasp_objects.empty()) {
@@ -856,7 +960,8 @@ private:
       invalidateApproachReadiness();
       saveDebugFrame(
         *msg, final_cost_grid, robot_point, input.target_point_m, best_index, callback_started,
-        callback_received_time_sec, countCandidateCells(input.candidate_mask), 0U, false, false);
+        callback_received_time_sec, reachable.start_index.has_value(), reachable.reachable_count,
+        countCandidateCells(input.candidate_mask), 0U, false, false);
       RCLCPP_WARN_THROTTLE(
         this->get_logger(), *this->get_clock(), 3000,
         "No valid cell found in final_cost_map for best cost pose.");
@@ -886,12 +991,13 @@ private:
     publishApproachReady(approach_ready);
     saveDebugFrame(
       *msg, final_cost_grid, robot_point, input.target_point_m, best_index, callback_started,
-      callback_received_time_sec, candidate_count, best_neighbor_count, best_is_stable,
-      approach_ready);
+      callback_received_time_sec, reachable.start_index.has_value(), reachable.reachable_count,
+      candidate_count, best_neighbor_count, best_is_stable, approach_ready);
 
     RCLCPP_INFO_THROTTLE(
       this->get_logger(), *this->get_clock(), 1000,
-      "Ready gate: candidates=%zu/%d best_neighbors=%zu/%d stable=%s ready=%s",
+      "Ready gate: reachable=%zu candidates=%zu/%d best_neighbors=%zu/%d stable=%s ready=%s",
+      reachable.reachable_count,
       candidate_count, runner_config_.min_feasible_cells,
       best_neighbor_count, runner_config_.min_best_neighbor_cells,
       best_is_stable ? "yes" : "no", approach_ready ? "yes" : "no");

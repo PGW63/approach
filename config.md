@@ -69,7 +69,7 @@
 | `target_point_topic` | `/approach/target_point` | 접근 대상 좌표 topic입니다. |
 | `grasp_targets_topic` | `/approach/grasp_targets` | grasp 대상 좌표 목록 topic입니다. 값이 있으면 grasp 반경 조건으로 후보를 추가 필터링합니다. |
 | `grasp_status_topic` | `/approach/grasp_status` | grasp 대상의 도달 가능 여부를 발행하는 topic입니다. |
-| `robot_frame_id` | `base` | 로봇 현재 위치를 TF로 조회할 frame입니다. |
+| `robot_frame_id` | `base_nav` | 로봇 현재 위치를 TF로 조회할 frame입니다. |
 | `output_topic` | `/approach/final_cost_map` | 정규화된 최종 cost map topic입니다. |
 | `arrow_topic` | `/approach/best_cost_arrow` | readiness 조건을 모두 만족했을 때만 발행되는 최종 접근 pose topic입니다. |
 | `candidate_arrow_topic` | `/approach/candidate_cost_arrow` | readiness와 무관하게 현재 best 후보를 계속 표시하는 pose topic입니다. |
@@ -81,13 +81,14 @@
 | 파라미터 | 현재 값 | 의미 |
 | --- | --- | --- |
 | `grasp_radius_m` | `0.9` | grasp target이 있을 때 후보 셀이 grasp 대상에서 떨어질 수 있는 최대 거리입니다. |
-| `min_feasible_cells` | `25` | 최종 arrow 발행 전에 확보해야 하는 전체 feasible 후보 셀의 최소 개수입니다. |
+| `robot_start_search_radius_m` | `0.30` | 로봇 위치 주변에서 flood fill을 시작할 가장 가까운 feasible 셀을 찾는 반경입니다. |
+| `min_feasible_cells` | `25` | 로봇 위치에서 연결 가능하고 grasp 필터까지 통과한 후보 셀의 최소 개수입니다. |
 | `best_neighbor_radius_m` | `0.30` | best 후보 주변 밀도를 검사할 반경입니다. |
 | `min_best_neighbor_cells` | `5` | best 후보 주변 반경 안에 있어야 하는 feasible 셀의 최소 개수입니다. |
 | `stable_duration_sec` | `0.70` | best 후보가 충분히 안정적이어야 하는 최소 지속 시간입니다. |
 | `stable_position_tolerance_m` | `0.15` | 안정화 시간 동안 best 후보가 움직일 수 있는 허용 반경입니다. |
 
-`arrow_topic`은 전체 후보 수, best 주변 후보 수, 위치 안정화 조건을 모두 통과한 경우에만 발행됩니다. 조건 통과 전 후보 위치를 확인하려면 `candidate_arrow_topic`을 사용합니다.
+로봇 주변에서 시작 feasible 셀을 찾은 뒤, 상하좌우로 연결된 영역만 후보로 남깁니다. 따라서 벽 뒤쪽처럼 로봇 위치에서 이어지지 않은 feasible 영역은 cost 계산에서 제외됩니다. `arrow_topic`은 연결된 후보 수, best 주변 후보 수, 위치 안정화 조건을 모두 통과한 경우에만 발행됩니다. 조건 통과 전 후보 위치를 확인하려면 `candidate_arrow_topic`을 사용합니다.
 
 ### 디버그 저장
 
@@ -97,6 +98,8 @@
 | `debug_output_dir` | `/home/nvidia/inha_log/module/approach_cost_debug` | 디버그 파일을 저장할 상위 경로입니다. |
 | `debug_save_every_n_frames` | `20` | 몇 callback마다 이미지 파일을 저장할지 결정합니다. CSV에는 callback별 정보가 기록됩니다. |
 | `debug_max_frames_per_session` | `600` | target session 하나에서 저장할 최대 callback 수입니다. `0`이면 제한하지 않습니다. |
+
+CSV의 `reachable_start_found`는 로봇 주변 시작 셀 발견 여부, `reachable_feasible_cells`는 해당 셀과 상하좌우로 연결된 feasible 셀 수를 나타냅니다.
 
 ## `approach_map_runner/config/icp_config.yaml`
 
