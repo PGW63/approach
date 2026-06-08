@@ -4,7 +4,7 @@ node_icp_cuda:
     frames:
       map: "map"
       odom: "odom"
-      base: "base_nav"
+      base: "base"
       sensor: "livox_lidar"
       camera: "camera_head_link"
     topics:
