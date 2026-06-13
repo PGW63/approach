@@ -18,7 +18,7 @@ struct FrameConfig
 {
     std::string map_frame = "map";
     std::string odom_frame = "odom";
-    std::string base_frame = "base";
+    std::string base_frame = "base_nav";
     std::string sensor_frame = "livox_lidar";
     std::string camera_frame = "camera_head_link";
 };

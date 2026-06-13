@@ -3,6 +3,6 @@ cost:
   common:
     weight_target_distance: 1.0
     weight_stability: 1.0
-    weight_approach_distance: 1.0
+    weight_approach_distance: 0.3
     stability_window_radius_cells: 1
     invalid_value: -1.0

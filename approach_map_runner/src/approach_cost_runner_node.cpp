@@ -38,10 +38,12 @@ struct CostRunnerConfig
 {
   std::string feasible_map_topic{"feasible_map"};
   std::string transition_map_topic{"transition_count_map"};
+  std::string visited_map_topic{"/approach/visited_map"};
+  bool exclude_visited_from_goals{true};
   std::string target_point_topic{"/approach/target_point"};
   std::string grasp_targets_topic{"/approach/grasp_targets"};
   std::string grasp_status_topic{"/approach/grasp_status"};
-  std::string robot_frame_id{"base"};
+  std::string robot_frame_id{"base_nav"};
   std::string output_topic{"final_cost_map"};
   std::string arrow_topic{"/approach/best_cost_arrow"};
   std::string candidate_arrow_topic{"/approach/candidate_cost_arrow"};
@@ -67,6 +69,10 @@ CostRunnerConfig loadCostRunnerConfig(rclcpp::Node & node)
     node.declare_parameter("feasible_map_topic", config.feasible_map_topic);
   config.transition_map_topic =
     node.declare_parameter("transition_map_topic", config.transition_map_topic);
+  config.visited_map_topic =
+    node.declare_parameter("visited_map_topic", config.visited_map_topic);
+  config.exclude_visited_from_goals =
+    node.declare_parameter("exclude_visited_from_goals", config.exclude_visited_from_goals);
   config.target_point_topic =
     node.declare_parameter("target_point_topic", config.target_point_topic);
   config.grasp_targets_topic =
@@ -522,6 +528,10 @@ public:
       runner_config_.transition_map_topic, 10,
       std::bind(&ApproachCostRunnerNode::transitionMapCallback, this, std::placeholders::_1));
 
+    visited_map_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
+      runner_config_.visited_map_topic, 10,
+      std::bind(&ApproachCostRunnerNode::visitedMapCallback, this, std::placeholders::_1));
+
     RCLCPP_INFO(this->get_logger(), "Loaded cost config: %s", cost_config_path.c_str());
     RCLCPP_INFO(this->get_logger(), "Loaded cost runner configuration from ROS parameters.");
     RCLCPP_INFO(
@@ -829,6 +839,11 @@ private:
     latest_transition_map_ = *msg;
   }
 
+  void visitedMapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
+  {
+    latest_visited_map_ = *msg;
+  }
+
   void graspTargetsCallback(const geometry_msgs::msg::PoseArray::SharedPtr msg)
   {
     latest_grasp_targets_ = *msg;
@@ -927,6 +942,24 @@ private:
         runner_config_.robot_start_search_radius_m);
     }
 
+    // Visited (robot-traversed) cells keep BFS connectivity above, but they must not
+    // become goal candidates themselves — otherwise the goal collapses onto the robot
+    // trail and chases the robot.
+    if (runner_config_.exclude_visited_from_goals && latest_visited_map_.has_value()) {
+      if (haveMatchingGridGeometry(*msg, latest_visited_map_.value())) {
+        const auto & visited = latest_visited_map_.value().data;
+        for (std::size_t i = 0; i < input.candidate_mask.size(); ++i) {
+          if (i < visited.size() && visited[i] > 0) {
+            input.candidate_mask[i] = 0U;
+          }
+        }
+      } else {
+        RCLCPP_WARN_THROTTLE(
+          this->get_logger(), *this->get_clock(), 3000,
+          "Ignoring visited map because its grid geometry does not match feasible_map.");
+      }
+    }
+
     const auto grasp_objects = graspObjectsInFrame(map_frame);
     if (!grasp_objects.empty()) {
       const auto reach = computeGraspReach(
@@ -1013,6 +1046,7 @@ private:
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   std::optional<geometry_msgs::msg::PointStamped> latest_target_point_;
   std::optional<nav_msgs::msg::OccupancyGrid> latest_transition_map_;
+  std::optional<nav_msgs::msg::OccupancyGrid> latest_visited_map_;
   std::optional<geometry_msgs::msg::PoseArray> latest_grasp_targets_;
   std::optional<approach_map::XYPoint> stable_best_point_;
   std::optional<rclcpp::Time> stable_since_;
@@ -1027,6 +1061,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr target_point_sub_;
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr feasible_map_sub_;
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr transition_map_sub_;
+  rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr visited_map_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr grasp_targets_sub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr final_cost_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr best_arrow_pub_;

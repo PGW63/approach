@@ -81,6 +81,20 @@ public:
   void addObstacleObservations(const std::vector<XYPoint> & points);
 
   /**
+   * @brief Mark a disc of cells around the robot as visited (known-free).
+   *
+   * The robot physically occupies/traverses this area, so the cells are treated
+   * as definitely free and feasible regardless of sparse or noisy observations.
+   * The visited mask is persistent and accumulates the full robot trajectory,
+   * guaranteeing a reachable seed and connectivity for downstream planning.
+   *
+   * @param x_m Robot center x coordinate in map meters.
+   * @param y_m Robot center y coordinate in map meters.
+   * @param radius_m Disc radius in meters around the robot center.
+   */
+  void markVisited(double x_m, double y_m, double radius_m);
+
+  /**
    * @brief Finalize the current update and rebuild derived layers.
    */
   void endUpdate();
@@ -147,6 +161,12 @@ public:
   const std::vector<uint8_t> & observedMask() const;
 
   /**
+   * @brief Access the mask of cells the robot has visited (known-free).
+   * @return Per-cell visited flags.
+   */
+  const std::vector<uint8_t> & visitedMask() const;
+
+  /**
    * @brief Access the current semantic state of each cell.
    * @return Per-cell classified state values.
    */
@@ -197,6 +217,8 @@ private:
   void computeClearanceMeters();
   void buildFootprintStencils();
   void computeHeadingFeasibleMasks();
+  void enforceVisitedFree();
+  void applyVisitedFeasible();
   bool footprintFitsAt(std::size_t center_index, std::size_t heading_bin) const;
 
   Config config_;
@@ -207,6 +229,7 @@ private:
   std::vector<int> evidence_scores_;
   std::vector<uint32_t> state_transition_counts_;
   std::vector<uint8_t> observed_;
+  std::vector<uint8_t> visited_;
   std::vector<CellState> cell_states_;
   std::vector<float> clearance_m_;
   std::vector<std::vector<OffsetCell>> footprint_stencils_;

@@ -13,7 +13,7 @@ std::string frameIdToString(FRAME_ID frame_id)
     case FRAME_ID::ODOM:
         return "odom";
     case FRAME_ID::BASE:
-        return "base";
+        return "base_nav";
     case FRAME_ID::LIVOX_LIDAR:
         return "livox_lidar";
     case FRAME_ID::LASER_FRAME:

@@ -19,6 +19,6 @@ approach_cost_runner_node:
     stable_duration_sec: 0.70
     stable_position_tolerance_m: 0.15
     debug_save_enable: true
-    debug_output_dir: "/home/nvidia/inha_log/module/approach_cost_debug"
+    debug_output_dir: "/home/gw/inha_log/module/approach_cost_debug"
     debug_save_every_n_frames: 20
     debug_max_frames_per_session: 600

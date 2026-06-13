@@ -1,6 +1,6 @@
 approach_map_runner_node:
   ros__parameters:
-    input_cloud_topic: "/approach/aligned_cloud" # "/approach/accumulated_cloud"
+    input_cloud_topic: "/livox/lidar" # raw lidar (was "/approach/aligned_cloud" / "/approach/accumulated_cloud")
     target_point_topic: "/approach/target_point"
     grasp_targets_topic: "/approach/grasp_targets"
     mapping_service_name: "/approach/mapping"
@@ -11,7 +11,7 @@ approach_map_runner_node:
     nav2_feasible_map_topic: "/approach/nav2_feasible_map"
     clearance_map_topic: "/approach/clearance_map"
     transition_map_topic: "/approach/transition_count_map"
-    robot_filter_frame_id: "base"
+    robot_filter_frame_id: "base_nav"
     use_initial_origin: false
     allow_origin_updates_after_first_click: false
     target_update_threshold_m: 2.0
@@ -35,3 +35,20 @@ approach_map_runner_node:
     robot_filter_x_max: 0.50
     robot_filter_y_min: -0.50
     robot_filter_y_max: 0.50
+
+    # --- Update gating: skip integrating a scan when localization is unreliable ---
+    mapping_gate_enable: true
+    odom_topic: "/odom"
+    odom_frame_id: "odom"
+    localization_pose_topic: "/pose"   # AMCL: /amcl_pose, slam_toolbox: /pose (same msg type)
+    max_angular_velocity: 0.35              # rad/s
+    tf_jump_translation_m: 0.10             # map->odom correction jump -> skip
+    tf_jump_yaw_rad: 0.10
+    tf_jump_skip_count: 3                   # frames to skip after a jump
+    max_position_cov_trace: 0.045           # cov[xx]+cov[yy] (m^2), ~sigma 0.15m/axis
+    max_yaw_variance: 0.0036                # cov[yaw] (rad^2), ~sigma 0.06rad
+    gate_signal_timeout_sec: 1.0            # ignore odom/pose gate if signal older than this
+
+    # --- Mark the robot trajectory as known-free/feasible ---
+    robot_path_feasible_enable: true
+    visited_radius_m: 0.25

@@ -10,13 +10,16 @@
 
 #include <geometry_msgs/msg/point_stamped.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
+#include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
+#include <nav_msgs/msg/odometry.hpp>
 #include <pcl_conversions/pcl_conversions.h>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <std_msgs/msg/header.hpp>
 #include <tf2/exceptions.h>
 #include <tf2/time.h>
+#include <tf2/utils.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/create_timer_ros.h>
@@ -42,7 +45,8 @@ struct RunnerConfig
   std::string nav2_feasible_map_topic{"/approach/nav2_feasible_map"};
   std::string clearance_map_topic{"/approach/clearance_map"};
   std::string transition_map_topic{"/approach/transition_count_map"};
-  std::string robot_filter_frame_id{"base"};
+  std::string visited_map_topic{"/approach/visited_map"};
+  std::string robot_filter_frame_id{"base_nav"};
   bool use_initial_origin{false};
   bool allow_origin_updates_after_first_click{false};
   double target_update_threshold_m{2.0};
@@ -66,6 +70,23 @@ struct RunnerConfig
   double robot_filter_x_max{0.2};
   double robot_filter_y_min{-0.3};
   double robot_filter_y_max{0.3};
+
+  // Update gating: skip integrating a scan when localization is unreliable.
+  bool mapping_gate_enable{true};
+  std::string odom_topic{"/odom"};
+  std::string odom_frame_id{"odom"};
+  std::string localization_pose_topic{"/amcl_pose"};
+  double max_angular_velocity{0.35};
+  double tf_jump_translation_m{0.10};
+  double tf_jump_yaw_rad{0.10};
+  int tf_jump_skip_count{3};
+  double max_position_cov_trace{0.045};
+  double max_yaw_variance{0.0036};
+  double gate_signal_timeout_sec{1.0};
+
+  // Mark the robot trajectory as known-free/feasible.
+  bool robot_path_feasible_enable{true};
+  double visited_radius_m{0.25};
 };
 
 RunnerConfig loadRunnerConfig(rclcpp::Node & node)
@@ -92,6 +113,8 @@ RunnerConfig loadRunnerConfig(rclcpp::Node & node)
     node.declare_parameter("clearance_map_topic", config.clearance_map_topic);
   config.transition_map_topic =
     node.declare_parameter("transition_map_topic", config.transition_map_topic);
+  config.visited_map_topic =
+    node.declare_parameter("visited_map_topic", config.visited_map_topic);
   config.robot_filter_frame_id =
     node.declare_parameter("robot_filter_frame_id", config.robot_filter_frame_id);
   config.use_initial_origin =
@@ -137,6 +160,28 @@ RunnerConfig loadRunnerConfig(rclcpp::Node & node)
     node.declare_parameter("robot_filter_y_min", config.robot_filter_y_min);
   config.robot_filter_y_max =
     node.declare_parameter("robot_filter_y_max", config.robot_filter_y_max);
+  config.mapping_gate_enable =
+    node.declare_parameter("mapping_gate_enable", config.mapping_gate_enable);
+  config.odom_topic = node.declare_parameter("odom_topic", config.odom_topic);
+  config.odom_frame_id = node.declare_parameter("odom_frame_id", config.odom_frame_id);
+  config.localization_pose_topic =
+    node.declare_parameter("localization_pose_topic", config.localization_pose_topic);
+  config.max_angular_velocity =
+    node.declare_parameter("max_angular_velocity", config.max_angular_velocity);
+  config.tf_jump_translation_m =
+    node.declare_parameter("tf_jump_translation_m", config.tf_jump_translation_m);
+  config.tf_jump_yaw_rad = node.declare_parameter("tf_jump_yaw_rad", config.tf_jump_yaw_rad);
+  config.tf_jump_skip_count =
+    static_cast<int>(node.declare_parameter("tf_jump_skip_count", config.tf_jump_skip_count));
+  config.max_position_cov_trace =
+    node.declare_parameter("max_position_cov_trace", config.max_position_cov_trace);
+  config.max_yaw_variance =
+    node.declare_parameter("max_yaw_variance", config.max_yaw_variance);
+  config.gate_signal_timeout_sec =
+    node.declare_parameter("gate_signal_timeout_sec", config.gate_signal_timeout_sec);
+  config.robot_path_feasible_enable =
+    node.declare_parameter("robot_path_feasible_enable", config.robot_path_feasible_enable);
+  config.visited_radius_m = node.declare_parameter("visited_radius_m", config.visited_radius_m);
   return config;
 }
 
@@ -251,6 +296,23 @@ nav_msgs::msg::OccupancyGrid toClearanceGrid(
   return grid;
 }
 
+nav_msgs::msg::OccupancyGrid toVisitedGrid(
+  const approach_map::GridMeta & meta,
+  const std::vector<uint8_t> & visited_mask,
+  const std_msgs::msg::Header & header)
+{
+  auto grid = makeBaseGrid(meta, header);
+  if (visited_mask.size() != grid.data.size()) {
+    return grid;
+  }
+
+  for (std::size_t i = 0; i < visited_mask.size(); ++i) {
+    grid.data[i] = visited_mask[i] != 0U ? 100 : 0;
+  }
+
+  return grid;
+}
+
 nav_msgs::msg::OccupancyGrid toTransitionGrid(
   const approach_map::GridMeta & meta,
   const std::vector<uint32_t> & transition_counts,
@@ -331,6 +393,8 @@ public:
       runner_config_.feasible_map_topic, 1);
     transition_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>(
       runner_config_.transition_map_topic, 1);
+    visited_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>(
+      runner_config_.visited_map_topic, 1);
     auto target_point_qos = rclcpp::QoS(rclcpp::KeepLast(1));
     target_point_qos.reliable();
     target_point_qos.transient_local();
@@ -347,6 +411,15 @@ public:
     cloud_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
       runner_config_.input_cloud_topic, rclcpp::SensorDataQoS(),
       std::bind(&ApproachMapRunnerNode::cloudCallback, this, std::placeholders::_1));
+
+    if (runner_config_.mapping_gate_enable) {
+      odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+        runner_config_.odom_topic, rclcpp::SensorDataQoS(),
+        std::bind(&ApproachMapRunnerNode::odomCallback, this, std::placeholders::_1));
+      pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+        runner_config_.localization_pose_topic, rclcpp::QoS(rclcpp::KeepLast(1)),
+        std::bind(&ApproachMapRunnerNode::poseCallback, this, std::placeholders::_1));
+    }
 
     RCLCPP_INFO(this->get_logger(), "Loaded map config: %s", map_config_path.c_str());
     RCLCPP_INFO(this->get_logger(), "Loaded runner configuration from ROS parameters.");
@@ -574,6 +647,124 @@ private:
     }
   }
 
+  void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
+  {
+    latest_angular_velocity_ = std::abs(msg->twist.twist.angular.z);
+    latest_odom_stamp_ = msg->header.stamp;
+    have_odom_ = true;
+  }
+
+  void poseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg)
+  {
+    // Position covariance trace (xx + yy) and yaw variance from the 6x6 row-major matrix.
+    latest_position_cov_trace_ = msg->pose.covariance[0] + msg->pose.covariance[7];
+    latest_yaw_variance_ = msg->pose.covariance[35];
+    latest_pose_stamp_ = msg->header.stamp;
+    have_pose_ = true;
+  }
+
+  // Returns true when the current scan should be skipped because localization is
+  // unreliable (fast rotation, a localization correction jump, or high covariance).
+  bool shouldSkipUpdate(const rclcpp::Time & stamp)
+  {
+    if (!runner_config_.mapping_gate_enable) {
+      return false;
+    }
+
+    const double timeout_sec = runner_config_.gate_signal_timeout_sec;
+
+    // (a) Rotation gate — localizer-agnostic.
+    if (have_odom_) {
+      const double age_sec = (stamp - rclcpp::Time(latest_odom_stamp_)).seconds();
+      if (std::abs(age_sec) <= timeout_sec &&
+        latest_angular_velocity_ > runner_config_.max_angular_velocity)
+      {
+        RCLCPP_DEBUG_THROTTLE(
+          this->get_logger(), *this->get_clock(), 2000,
+          "Skip scan: angular velocity %.3f > %.3f", latest_angular_velocity_,
+          runner_config_.max_angular_velocity);
+        return true;
+      }
+    }
+
+    // (b) map->odom jump gate — localizer-agnostic (covers AMCL relocalize and
+    //     slam_toolbox loop-closure corrections identically).
+    if (skip_frames_remaining_ > 0) {
+      --skip_frames_remaining_;
+      return true;
+    }
+    geometry_msgs::msg::TransformStamped map_from_odom;
+    bool have_tf = false;
+    try {
+      map_from_odom = tf_buffer_->lookupTransform(
+        runner_config_.map_frame_id, runner_config_.odom_frame_id, stamp, transformTimeout());
+      have_tf = true;
+    } catch (const tf2::TransformException &) {
+      have_tf = false;
+    }
+    if (have_tf) {
+      const double tx = map_from_odom.transform.translation.x;
+      const double ty = map_from_odom.transform.translation.y;
+      const double yaw = tf2::getYaw(map_from_odom.transform.rotation);
+      if (have_prev_map_from_odom_) {
+        const double dtrans = std::hypot(tx - prev_map_from_odom_x_, ty - prev_map_from_odom_y_);
+        double dyaw = std::abs(yaw - prev_map_from_odom_yaw_);
+        if (dyaw > M_PI) {
+          dyaw = 2.0 * M_PI - dyaw;
+        }
+        const bool jumped = dtrans > runner_config_.tf_jump_translation_m ||
+          dyaw > runner_config_.tf_jump_yaw_rad;
+        prev_map_from_odom_x_ = tx;
+        prev_map_from_odom_y_ = ty;
+        prev_map_from_odom_yaw_ = yaw;
+        if (jumped) {
+          skip_frames_remaining_ = std::max(0, runner_config_.tf_jump_skip_count);
+          RCLCPP_DEBUG_THROTTLE(
+            this->get_logger(), *this->get_clock(), 2000,
+            "Skip scan: map->odom jump dtrans=%.3f dyaw=%.3f", dtrans, dyaw);
+          return true;
+        }
+      } else {
+        prev_map_from_odom_x_ = tx;
+        prev_map_from_odom_y_ = ty;
+        prev_map_from_odom_yaw_ = yaw;
+        have_prev_map_from_odom_ = true;
+      }
+    }
+
+    // (c) Covariance gate — used only when a fresh pose with covariance is available.
+    if (have_pose_) {
+      const double age_sec = (stamp - rclcpp::Time(latest_pose_stamp_)).seconds();
+      if (std::abs(age_sec) <= timeout_sec &&
+        (latest_position_cov_trace_ > runner_config_.max_position_cov_trace ||
+        latest_yaw_variance_ > runner_config_.max_yaw_variance))
+      {
+        RCLCPP_DEBUG_THROTTLE(
+          this->get_logger(), *this->get_clock(), 2000,
+          "Skip scan: covariance pos_trace=%.4f yaw_var=%.4f", latest_position_cov_trace_,
+          latest_yaw_variance_);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  // Look up the robot origin in the map frame; returns false if TF is unavailable.
+  bool lookupRobotXY(const rclcpp::Time & stamp, double & x_m, double & y_m)
+  {
+    try {
+      const auto map_from_robot = tf_buffer_->lookupTransform(
+        runner_config_.map_frame_id, runner_config_.robot_filter_frame_id, stamp,
+        transformTimeout());
+      x_m = map_from_robot.transform.translation.x;
+      y_m = map_from_robot.transform.translation.y;
+      return true;
+    } catch (const tf2::TransformException &) {
+      return false;
+    }
+  }
+
   void cloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
   {
     if (!mapping_enabled_) {
@@ -591,6 +782,12 @@ private:
       return;
     }
 
+    const rclcpp::Time cloud_stamp(msg->header.stamp);
+
+    if (shouldSkipUpdate(cloud_stamp)) {
+      return;
+    }
+
     sensor_msgs::msg::PointCloud2 cloud_in_robot_filter_frame;
     if (!transformCloud(*msg, runner_config_.robot_filter_frame_id, cloud_in_robot_filter_frame)) {
       return;
@@ -599,18 +796,18 @@ private:
     pcl::PointCloud<pcl::PointXYZ>::Ptr processed_cloud(new pcl::PointCloud<pcl::PointXYZ>());
     pcl::fromROSMsg(cloud_in_robot_filter_frame, *processed_cloud);
 
-    // if (preprocess_config_.remove_nan_enable && !processed_cloud->empty()) {
-    //   processed_cloud = approach_preprocess::removeNaN(processed_cloud, preprocess_config_);
-    // }
-    // if (preprocess_config_.robot_filter_enable && !processed_cloud->empty()) {
-    //   processed_cloud = approach_preprocess::removeRobotPoints(processed_cloud, preprocess_config_);
-    // }
-    // if (preprocess_config_.outlier_removal_enable && !processed_cloud->empty()) {
-    //   processed_cloud = approach_preprocess::removeOutliers(processed_cloud, preprocess_config_);
-    // }
-    // if (preprocess_config_.downsample_enable && !processed_cloud->empty()) {
-    //   processed_cloud = approach_preprocess::downsample(processed_cloud, preprocess_config_);
-    // }
+    if (preprocess_config_.remove_nan_enable && !processed_cloud->empty()) {
+      processed_cloud = approach_preprocess::removeNaN(processed_cloud, preprocess_config_);
+    }
+    if (preprocess_config_.robot_filter_enable && !processed_cloud->empty()) {
+      processed_cloud = approach_preprocess::removeRobotPoints(processed_cloud, preprocess_config_);
+    }
+    if (preprocess_config_.outlier_removal_enable && !processed_cloud->empty()) {
+      processed_cloud = approach_preprocess::removeOutliers(processed_cloud, preprocess_config_);
+    }
+    if (preprocess_config_.downsample_enable && !processed_cloud->empty()) {
+      processed_cloud = approach_preprocess::downsample(processed_cloud, preprocess_config_);
+    }
 
     sensor_msgs::msg::PointCloud2 filtered_cloud;
     pcl::toROSMsg(*processed_cloud, filtered_cloud);
@@ -625,6 +822,14 @@ private:
     pcl::fromROSMsg(transformed_cloud, *map_cloud);
 
     builder_->beginUpdate();
+
+    if (runner_config_.robot_path_feasible_enable) {
+      double robot_x_m = 0.0;
+      double robot_y_m = 0.0;
+      if (lookupRobotXY(cloud_stamp, robot_x_m, robot_y_m)) {
+        builder_->markVisited(robot_x_m, robot_y_m, runner_config_.visited_radius_m);
+      }
+    }
 
     for (const auto & point : map_cloud->points) {
       const double x_m = point.x;
@@ -660,6 +865,8 @@ private:
     feasible_pub_->publish(toOccupancyGrid(feasible_layer, header));
     transition_pub_->publish(toTransitionGrid(
       builder_->gridMeta(), builder_->stateTransitionCounts(), builder_->observedMask(), header));
+    visited_pub_->publish(toVisitedGrid(
+      builder_->gridMeta(), builder_->visitedMask(), header));
   }
 
   approach_map::Config map_config_{};
@@ -672,13 +879,30 @@ private:
   bool mapping_enabled_{false};
   std::optional<std::pair<double, double>> last_published_target_;
 
+  // Gating state.
+  bool have_odom_{false};
+  double latest_angular_velocity_{0.0};
+  builtin_interfaces::msg::Time latest_odom_stamp_;
+  bool have_pose_{false};
+  double latest_position_cov_trace_{0.0};
+  double latest_yaw_variance_{0.0};
+  builtin_interfaces::msg::Time latest_pose_stamp_;
+  bool have_prev_map_from_odom_{false};
+  double prev_map_from_odom_x_{0.0};
+  double prev_map_from_odom_y_{0.0};
+  double prev_map_from_odom_yaw_{0.0};
+  int skip_frames_remaining_{0};
+
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_sub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr obstacle_pub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr nav2_obstacle_map_pub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr nav2_feasible_map_pub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr clearance_pub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr feasible_pub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr transition_pub_;
+  rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr visited_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr target_point_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr grasp_targets_pub_;
   rclcpp::Service<MappingControl>::SharedPtr mapping_service_;
