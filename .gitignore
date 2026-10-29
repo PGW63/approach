@@ -1,2 +1,20 @@
+# colcon / CMake
+build/
+install/
+log/
+fast_gicp/local_install/
+
+# Python
+__pycache__/
+*.pyc
+
+# Editors / tools
+.vscode/
+.idea/
 .codex
-.codex_backups
+.codex_backups/
+*.swp
+
+# Runtime outputs
+*.pcd
+!fast_gicp/data/*.pcd
