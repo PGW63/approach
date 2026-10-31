@@ -9,7 +9,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(FAST_GICP_LOCAL_PREFIX
-  "${CMAKE_CURRENT_SOURCE_DIR}/../fast_gicp/local_install"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/fast_gicp/local_install"
 )
 set(FAST_GICP_LOCAL_LIB_DIR
   "${FAST_GICP_LOCAL_PREFIX}/lib"

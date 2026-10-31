@@ -1,5 +1,43 @@
+# colcon / CMake build outputs
+build/
+install/
+log/
+local_install/
+CMakeCache.txt
+CMakeFiles/
+compile_commands.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Compiled objects / libraries
+*.o
+*.a
+*.so
+*.so.*
+
+# ROS bags / large data
+*.bag
+*.db3
+*.mcap
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Local tooling
 .codex
 .codex_backups
-temp.txt
 CLAUDE.txt
+temp.txt
+
 inha_interfaces_msgs/
+
+# Vendored upstream files that the patterns above would otherwise hide
+!third_party/fast_gicp/thirdparty/**/build/
+!third_party/fast_gicp/thirdparty/**/*.a
