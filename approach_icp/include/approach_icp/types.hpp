@@ -18,7 +18,7 @@ struct FrameConfig
 {
     std::string map_frame = "map";
     std::string odom_frame = "odom";
-    std::string base_frame = "base";
+    std::string base_frame = "base_nav";
     std::string sensor_frame = "livox_lidar";
     std::string camera_frame = "camera_head_link";
 };
@@ -28,6 +28,7 @@ struct TopicConfig
     std::string input_cloud_topic = "/livox/lidar";
     std::string aligned_cloud_topic = "/approach/aligned_cloud";
     std::string accumulation_cloud_topic = "/approach/accumulated_cloud";
+    std::string submap_cloud_topic = "/approach/submap_cloud";
 };
 
 struct ServiceConfig
@@ -38,7 +39,7 @@ struct ServiceConfig
 struct RegistrationConfig
 {
     std::string backend = "fast_gicp";
-    int num_threads = 1;
+    int num_threads = 3;
     double resolution = 0.25;
     double max_correspondence_distance = 1.0;
     double transformation_epsilon = 1e-4;

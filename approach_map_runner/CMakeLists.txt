@@ -9,7 +9,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(FAST_GICP_LOCAL_PREFIX
-  "${CMAKE_CURRENT_SOURCE_DIR}/../fast_gicp/local_install"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/fast_gicp/local_install"
 )
 set(FAST_GICP_LOCAL_LIB_DIR
   "${FAST_GICP_LOCAL_PREFIX}/lib"
@@ -20,7 +20,6 @@ if(EXISTS "${FAST_GICP_LOCAL_PREFIX}/share/fast_gicp/cmake/fast_gicpConfig.cmake
 endif()
 
 find_package(ament_cmake REQUIRED)
-find_package(ament_index_cpp REQUIRED)
 find_package(approach_icp REQUIRED)
 find_package(approach_mapping REQUIRED)
 find_package(approach_cost REQUIRED)
@@ -34,12 +33,12 @@ find_package(pcl_conversions REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_sensor_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
-find_package(yaml-cpp REQUIRED)
 
 add_executable(approach_map_runner_node
   src/approach_map_runner_node.cpp
@@ -51,10 +50,6 @@ add_executable(approach_cost_runner_node
 
 add_executable(node_icp_cuda
   src/node_icp_cuda.cpp
-)
-
-add_executable(approach_waiting
-  src/approach_waiting.cpp
 )
 
 target_include_directories(approach_map_runner_node PUBLIC
@@ -72,21 +67,14 @@ target_include_directories(node_icp_cuda PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 
-target_include_directories(approach_waiting PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-
 target_link_libraries(approach_map_runner_node
   approach_mapping::approach_map_lib
   approach_preprocess::approach_preprocess_lib
-  yaml-cpp
 )
 
 target_link_libraries(approach_cost_runner_node
   approach_mapping::approach_map_lib
   approach_cost::approach_cost_lib
-  yaml-cpp
 )
 
 target_link_libraries(node_icp_cuda
@@ -102,7 +90,6 @@ if(EXISTS "${FAST_GICP_LOCAL_LIB_DIR}")
 endif()
 
 ament_target_dependencies(approach_map_runner_node
-  ament_index_cpp
   approach_mapping
   approach_preprocess
   geometry_msgs
@@ -110,6 +97,7 @@ ament_target_dependencies(approach_map_runner_node
   pcl_conversions
   rclcpp
   sensor_msgs
+  std_msgs
   tf2
   tf2_geometry_msgs
   tf2_ros
@@ -118,12 +106,12 @@ ament_target_dependencies(approach_map_runner_node
 )
 
 ament_target_dependencies(approach_cost_runner_node
-  ament_index_cpp
   approach_mapping
   approach_cost
   geometry_msgs
   nav_msgs
   rclcpp
+  std_msgs
   tf2
   tf2_geometry_msgs
   tf2_ros
@@ -146,20 +134,10 @@ ament_target_dependencies(node_icp_cuda
   tf2_ros
 )
 
-ament_target_dependencies(approach_waiting
-  geometry_msgs
-  inha_interfaces
-  nav_msgs
-  rclcpp
-  tf2
-  tf2_ros
-)
-
 install(TARGETS
   approach_map_runner_node
   approach_cost_runner_node
   node_icp_cuda
-  approach_waiting
   DESTINATION lib/${PROJECT_NAME}
 )
 

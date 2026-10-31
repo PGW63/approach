@@ -1,0 +1,9 @@
+.vscode/*
+build/*
+dist/*
+local_install/*
+
+*.so
+*.py[cod]
+*.egg-info
+README.html

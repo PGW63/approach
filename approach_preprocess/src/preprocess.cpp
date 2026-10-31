@@ -10,14 +10,24 @@ namespace approach_preprocess
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr downsample(
   const pcl::PointCloud<pcl::PointXYZ>::Ptr & cloud,
-  const PreprocessConfig & config)
+  double voxel_leaf_size)
 {
   pcl::PointCloud<pcl::PointXYZ>::Ptr downsampled(new pcl::PointCloud<pcl::PointXYZ>());
   pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
   voxel_filter.setInputCloud(cloud);
-  voxel_filter.setLeafSize(config.voxel_leaf_size, config.voxel_leaf_size, config.voxel_leaf_size);
+  voxel_filter.setLeafSize(
+    static_cast<float>(voxel_leaf_size),
+    static_cast<float>(voxel_leaf_size),
+    static_cast<float>(voxel_leaf_size));
   voxel_filter.filter(*downsampled);
   return downsampled;
+}
+
+pcl::PointCloud<pcl::PointXYZ>::Ptr downsample(
+  const pcl::PointCloud<pcl::PointXYZ>::Ptr & cloud,
+  const PreprocessConfig & config)
+{
+  return downsample(cloud, config.voxel_leaf_size);
 }
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr removeNaN(
@@ -83,6 +93,19 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr removeOutliers(
   sor.setMeanK(config.mean_k);
   sor.setStddevMulThresh(config.stddev_mul_thresh);
   sor.filter(*filtered);
+  return filtered;
+}
+
+pcl::PointCloud<pcl::PointXYZ>::Ptr removeRadiusOutliers(
+  const pcl::PointCloud<pcl::PointXYZ>::Ptr & cloud,
+  const PreprocessConfig & config)
+{
+  pcl::PointCloud<pcl::PointXYZ>::Ptr filtered(new pcl::PointCloud<pcl::PointXYZ>());
+  pcl::RadiusOutlierRemoval<pcl::PointXYZ> radius_filter;
+  radius_filter.setInputCloud(cloud);
+  radius_filter.setRadiusSearch(config.radius_search_m);
+  radius_filter.setMinNeighborsInRadius(config.min_neighbors_in_radius);
+  radius_filter.filter(*filtered);
   return filtered;
 }
 

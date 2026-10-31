@@ -2,7 +2,9 @@
 #include <chrono>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <stdexcept>
+#include <string>
 
 namespace
 {
@@ -46,9 +48,92 @@ Eigen::Matrix4f makePlanarTransform(double x, double y, double yaw)
     return transform;
 }
 
+RegistrationConfig loadRegistrationConfig(
+    rclcpp::Node & node,
+    const RegistrationConfig & defaults)
+{
+    RegistrationConfig config = defaults;
+    config.backend = node.declare_parameter("registration.backend", config.backend);
+    config.num_threads =
+        node.declare_parameter("registration.num_threads", config.num_threads);
+    config.resolution =
+        node.declare_parameter("registration.resolution", config.resolution);
+    config.max_correspondence_distance = node.declare_parameter(
+        "registration.max_correspondence_distance", config.max_correspondence_distance);
+    config.transformation_epsilon = node.declare_parameter(
+        "registration.transformation_epsilon", config.transformation_epsilon);
+    config.euclidean_fitness_epsilon = node.declare_parameter(
+        "registration.euclidean_fitness_epsilon", config.euclidean_fitness_epsilon);
+    config.max_iterations =
+        node.declare_parameter("registration.max_iterations", config.max_iterations);
+    config.max_submap_frames =
+        node.declare_parameter("registration.max_submap_frames", config.max_submap_frames);
+    config.max_angular_velocity_for_update = node.declare_parameter(
+        "registration.max_angular_velocity_for_update",
+        config.max_angular_velocity_for_update);
+    config.max_planar_translation_correction = node.declare_parameter(
+        "registration.max_planar_translation_correction",
+        config.max_planar_translation_correction);
+    config.max_yaw_correction =
+        node.declare_parameter("registration.max_yaw_correction", config.max_yaw_correction);
+    config.max_roll_correction =
+        node.declare_parameter("registration.max_roll_correction", config.max_roll_correction);
+    config.max_pitch_correction =
+        node.declare_parameter("registration.max_pitch_correction", config.max_pitch_correction);
+    config.max_z_correction =
+        node.declare_parameter("registration.max_z_correction", config.max_z_correction);
+
+    return config;
+}
+
+approach_preprocess::PreprocessConfig loadPreprocessConfig(
+    rclcpp::Node & node,
+    const approach_preprocess::PreprocessConfig & defaults)
+{
+    approach_preprocess::PreprocessConfig config = defaults;
+    config.remove_nan_enable =
+        node.declare_parameter("preprocess.remove_nan_enable", config.remove_nan_enable);
+    config.downsample_enable =
+        node.declare_parameter("preprocess.downsample_enable", config.downsample_enable);
+    config.outlier_removal_enable = node.declare_parameter(
+        "preprocess.outlier_removal_enable", config.outlier_removal_enable);
+    config.radius_outlier_removal_enable = node.declare_parameter(
+        "preprocess.radius_outlier_removal_enable", config.radius_outlier_removal_enable);
+    config.robot_filter_enable =
+        node.declare_parameter("preprocess.robot_filter_enable", config.robot_filter_enable);
+    config.ground_removal_enable =
+        node.declare_parameter("preprocess.ground_removal_enable", config.ground_removal_enable);
+    config.voxel_leaf_size =
+        node.declare_parameter("preprocess.voxel_leaf_size", config.voxel_leaf_size);
+    config.registration_voxel_leaf_size = node.declare_parameter(
+        "preprocess.registration_voxel_leaf_size", config.registration_voxel_leaf_size);
+    config.passthrough_robot_x_min = node.declare_parameter(
+        "preprocess.passthrough_robot_x_min", config.passthrough_robot_x_min);
+    config.passthrough_robot_x_max = node.declare_parameter(
+        "preprocess.passthrough_robot_x_max", config.passthrough_robot_x_max);
+    config.passthrough_robot_y_min = node.declare_parameter(
+        "preprocess.passthrough_robot_y_min", config.passthrough_robot_y_min);
+    config.passthrough_robot_y_max = node.declare_parameter(
+        "preprocess.passthrough_robot_y_max", config.passthrough_robot_y_max);
+    config.passthrough_ground_z_ =
+        node.declare_parameter("preprocess.passthrough_ground_z", config.passthrough_ground_z_);
+    config.mean_k = node.declare_parameter("preprocess.mean_k", config.mean_k);
+    config.stddev_mul_thresh =
+        node.declare_parameter("preprocess.stddev_mul_thresh", config.stddev_mul_thresh);
+    config.radius_search_m = std::max(
+        1.0e-6,
+        node.declare_parameter("preprocess.radius_search_m", config.radius_search_m));
+    config.min_neighbors_in_radius = static_cast<int>(std::max<std::int64_t>(
+        1,
+        node.declare_parameter(
+            "preprocess.min_neighbors_in_radius", config.min_neighbors_in_radius)));
+
+    return config;
+}
+
 }  // namespace
 
-NodeICPCuda::NodeICPCuda() : 
+NodeICPCuda::NodeICPCuda() :
     Node("node_icp_cuda"),
     tf_buffer_(this->get_clock()),
     tf_listener_(tf_buffer_)
@@ -56,12 +141,51 @@ NodeICPCuda::NodeICPCuda() :
     measure_registration_metrics_ =
         this->declare_parameter<bool>("measure_registration_metrics", false);
 
+    frame_config_.map_frame =
+        this->declare_parameter("frames.map", frame_config_.map_frame);
+    frame_config_.odom_frame =
+        this->declare_parameter("frames.odom", frame_config_.odom_frame);
+    frame_config_.base_frame =
+        this->declare_parameter("frames.base", frame_config_.base_frame);
+    frame_config_.sensor_frame =
+        this->declare_parameter("frames.sensor", frame_config_.sensor_frame);
+    frame_config_.camera_frame =
+        this->declare_parameter("frames.camera", frame_config_.camera_frame);
+
+    topic_config_.input_cloud_topic =
+        this->declare_parameter("topics.input_cloud", topic_config_.input_cloud_topic);
+    publish_topic_name_.aligned_cloud_topic =
+        this->declare_parameter("topics.aligned_cloud", publish_topic_name_.aligned_cloud_topic);
+    publish_topic_name_.accumulation_cloud_topic = this->declare_parameter(
+        "topics.accumulated_cloud", publish_topic_name_.accumulation_cloud_topic);
+    publish_topic_name_.submap_cloud_topic =
+        this->declare_parameter("topics.submap_cloud", publish_topic_name_.submap_cloud_topic);
+    service_config_.accumulation_service_name = this->declare_parameter(
+        "services.accumulation", service_config_.accumulation_service_name);
+
+    registration_config_ = loadRegistrationConfig(*this, registration_config_);
+    preprocess_config_ = loadPreprocessConfig(*this, preprocess_config_);
+    RCLCPP_INFO(
+        this->get_logger(),
+        "Loaded ICP registration config: backend=%s num_threads=%d max_iterations=%d",
+        registration_config_.backend.c_str(),
+        registration_config_.num_threads,
+        registration_config_.max_iterations);
+    RCLCPP_INFO(
+        this->get_logger(),
+        "Loaded ICP preprocess config: voxel_leaf_size=%.3f registration_voxel_leaf_size=%.3f "
+        "sor=%s radius_outlier=%s radius=%.3f min_neighbors=%d",
+        preprocess_config_.voxel_leaf_size,
+        preprocess_config_.registration_voxel_leaf_size,
+        preprocess_config_.outlier_removal_enable ? "on" : "off",
+        preprocess_config_.radius_outlier_removal_enable ? "on" : "off",
+        preprocess_config_.radius_search_m,
+        preprocess_config_.min_neighbors_in_radius);
+
     accumulation_service_ = this->create_service<inha_interfaces::srv::Accumulation>(
         service_config_.accumulation_service_name,
         std::bind(&NodeICPCuda::service_callback, this, std::placeholders::_1, std::placeholders::_2)
     );
-
-
 
     create_publisher_topic();
 
@@ -125,6 +249,8 @@ void NodeICPCuda::create_publisher_topic()
         topic_config_.aligned_cloud_topic, rclcpp::SensorDataQoS());
     accumulation_cloud_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
         topic_config_.accumulation_cloud_topic, rclcpp::SensorDataQoS());
+    submap_cloud_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
+        topic_config_.submap_cloud_topic, rclcpp::SensorDataQoS());
 }
 
 void NodeICPCuda::create_subscription_topic()
@@ -196,6 +322,9 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr NodeICPCuda::preprocess_cloud_for_mapping(
     if (preprocess_config_.outlier_removal_enable && !processed->empty()) {
         processed = approach_preprocess::removeOutliers(processed, preprocess_config_);
     }
+    if (preprocess_config_.radius_outlier_removal_enable && !processed->empty()) {
+        processed = approach_preprocess::removeRadiusOutliers(processed, preprocess_config_);
+    }
     if (preprocess_config_.robot_filter_enable && !processed->empty()) {
         processed = approach_preprocess::removeRobotPoints(processed, preprocess_config_);
     }
@@ -207,6 +336,16 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr NodeICPCuda::preprocess_cloud_for_registrati
     const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud_in_base) const
 {
     auto processed = preprocess_cloud_for_mapping(cloud_in_base);
+
+    // Registration uses a (typically larger) leaf size so ICP stays fast
+    // even when mapping path keeps a denser cloud.
+    if (preprocess_config_.downsample_enable &&
+        !processed->empty() &&
+        preprocess_config_.registration_voxel_leaf_size > preprocess_config_.voxel_leaf_size)
+    {
+        processed = approach_preprocess::downsample(
+            processed, preprocess_config_.registration_voxel_leaf_size);
+    }
 
     if (preprocess_config_.ground_removal_enable && !processed->empty()) {
         processed = approach_preprocess::removeGroundPoints(processed, preprocess_config_);
@@ -402,6 +541,7 @@ void NodeICPCuda::process_callback()
 
         publish_cloud(accumulated_cloud, target_frame_, publish_topic_name_.accumulation_cloud_topic);
         publish_cloud(first_cloud_in_target, target_frame_, publish_topic_name_.aligned_cloud_topic);
+        publish_cloud(build_registration_submap(), target_frame_, publish_topic_name_.submap_cloud_topic);
 
         latest_cloud->clear();
         has_latest_cloud = false;
@@ -474,6 +614,7 @@ void NodeICPCuda::process_callback()
     has_last_odom_from_base_ = true;
     has_last_registered_stamp_ = true;
     publish_cloud(accumulated_cloud, target_frame_, publish_topic_name_.accumulation_cloud_topic);
+    publish_cloud(build_registration_submap(), target_frame_, publish_topic_name_.submap_cloud_topic);
 
     latest_cloud->clear();
     has_latest_cloud = false;
@@ -512,6 +653,8 @@ void NodeICPCuda::publish_cloud(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud
         aligned_cloud_pub_->publish(output_msg);
     } else if (topic_name == publish_topic_name_.accumulation_cloud_topic) {
         accumulation_cloud_pub_->publish(output_msg);
+    } else if (topic_name == publish_topic_name_.submap_cloud_topic) {
+        submap_cloud_pub_->publish(output_msg);
     } else {
         RCLCPP_ERROR(this->get_logger(), "Unknown topic name: %s", topic_name.c_str());
     }

@@ -126,4 +126,39 @@ void Builder::computeHeadingFeasibleMasks()
   }
 }
 
+/**
+ * @brief
+ * 로봇이 실제로 지나온(visited) 셀을 Free로 강제하는 함수.
+ * @details
+ * 로봇이 물리적으로 점유/통과한 위치이므로 희소하거나 노이즈가 섞인 관측과 무관하게
+ * 확실히 비어 있는 공간으로 간주한다. classifyCells 이후에 호출되어, 순간적인 노이즈로
+ * 장애물로 분류된 visited 셀을 다시 Free로 되돌린다.
+ */
+void Builder::enforceVisitedFree()
+{
+  for (std::size_t i = 0; i < cellCount(); ++i) {
+    if (visited_[i] != 0U) {
+      cell_states_[i] = CellState::Free;
+    }
+  }
+}
+
+/**
+ * @brief
+ * visited 셀을 모든 heading bin에서 feasible로 강제하는 함수.
+ * @details
+ * 로봇이 지나온 경로는 항상 도달 가능한 seed와 연결성을 보장해야 하므로,
+ * footprint 충돌 검사와 무관하게 feasible로 OR 처리한다.
+ */
+void Builder::applyVisitedFeasible()
+{
+  for (auto & feasible_mask : heading_feasible_) {
+    for (std::size_t i = 0; i < cellCount(); ++i) {
+      if (visited_[i] != 0U) {
+        feasible_mask[i] = 1U;
+      }
+    }
+  }
+}
+
 }  // namespace approach_map

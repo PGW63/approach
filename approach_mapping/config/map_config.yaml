@@ -7,8 +7,8 @@ map:
   obstacle_weight: 2
   ground_weight: 1
   evidence_clip_value: 100
-  occupied_score_threshold: 10
-  free_score_threshold: 8
+  occupied_score_threshold: 6
+  free_score_threshold: 4
   footprint_length_m: 0.70
   footprint_width_m: 0.60
   footprint_margin_m: 0.05
